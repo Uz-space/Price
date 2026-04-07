@@ -50,7 +50,7 @@ user_menu = ReplyKeyboardMarkup(
 
 admin_menu = ReplyKeyboardMarkup(
     keyboard=[
-        [KeyboardButton(text="➕ Mahsulot qo'shish"), KeyboardButton(text="❌ Mahsulot o'chirish")],
+        [KeyboardButton(text="➕ qo'shish"), KeyboardButton(text="➖ o'chirish")],
         [KeyboardButton(text="📋 Buyurtmalar"), KeyboardButton(text="📊 Statistika")]
     ],
     resize_keyboard=True
