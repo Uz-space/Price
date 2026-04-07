@@ -1,43 +1,39 @@
 import telebot
 import requests
-import time
 import threading
-from datetime import datetime
-from telebot.types import ReplyKeyboardMarkup, KeyboardButton
+import time
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 TOKEN = "8134986426:AAF_Np2hSvspbrBfcsjsr9Szd77yb0WiIBI"
 bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
 
+# ---------------- COINS ----------------
 coins = {
     "BTC": "bitcoin",
     "ETH": "ethereum",
     "BNB": "binancecoin",
     "SOL": "solana",
     "LTC": "litecoin",
+    "TON": "the-open-network",
     "TRX": "tron",
-    "DOGE": "dogecoin",
+    "DOGE": "dogecoin"
 }
 
+# ---------------- EMOJI IDS (SENIKI) ----------------
 emoji_id = {
     "BTC": "5215277894456089919",
     "ETH": "5215469686220688535",
     "BNB": "5215501052366852398",
     "SOL": "5215644439850028163",
     "LTC": "5215397251597243962",
+    "TON": "5215541953340410399",
     "TRX": "5215676493190960888",
-    "DOGE": "5215580724010193095",
+    "DOGE": "5215580724010193095"
 }
 
 users = {}
 
-# ---------------- MENU ----------------
-def menu():
-    kb = ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.add(KeyboardButton("💰 Narxlar"), KeyboardButton("📊 Statistika"))
-    kb.add(KeyboardButton("⚙️ Sozlamalar"))
-    return kb
-
-# ---------------- API (NO 24HR) ----------------
+# ---------------- API ----------------
 def get_prices():
     try:
         r = requests.get(
@@ -51,52 +47,61 @@ def get_prices():
         data = r.json()
 
         result = {}
-        for c, coin_id in coins.items():
-            if coin_id in data:
-                result[c] = {
-                    "price": data[coin_id]["usd"]
-                }
+        for c, cid in coins.items():
+            if cid in data:
+                result[c] = data[cid]["usd"]
         return result
-
-    except Exception as e:
-        print("API ERROR:", e)
+    except:
         return {}
 
 # ---------------- FORMAT ----------------
 def fmt(c):
     return f"<tg-emoji emoji-id='{emoji_id[c]}'>🪙</tg-emoji> <b>{c}</b>"
 
-def build(prices):
-    t = datetime.now().strftime("%H:%M:%S")
-    text = "<b>💰 Kripto Narxlar</b>\n\n"
+def build(prices, interval):
+    text = "<b>📊 PRO Crypto Dashboard</b>\n\n"
 
-    for c, i in prices.items():
-        text += f"{fmt(c)} <code>${i['price']:.2f}</code>\n"
+    for c, p in prices.items():
+        text += f"{fmt(c)} <code>${p:.2f}</code>\n"
 
-    text += f"\n🕐 {t}"
+    text += f"\n⚙️ Refresh interval: <b>{interval}s</b>"
     return text
 
-def stats(prices):
-    text = "<b>📊 Statistika</b>\n\n"
-    for c, i in prices.items():
-        text += f"{fmt(c)}\n💵 ${i['price']:.2f}\n\n"
-    return text
+# ---------------- PANEL ----------------
+def panel(interval):
+    kb = InlineKeyboardMarkup()
 
-# ---------------- UPDATER ----------------
+    kb.row(
+        InlineKeyboardButton("➖", callback_data="minus"),
+        InlineKeyboardButton(f"⏱ {interval}s", callback_data="none"),
+        InlineKeyboardButton("➕", callback_data="plus"),
+    )
+
+    kb.row(
+        InlineKeyboardButton("🔄 Reset", callback_data="reset")
+    )
+
+    return kb
+
+# ---------------- LOOP ----------------
 def updater(chat_id):
     while chat_id in users:
-        if users[chat_id]["section"] == "prices":
+        try:
+            u = users[chat_id]
+
             prices = get_prices()
-            if prices:
-                try:
-                    bot.edit_message_text(
-                        build(prices),
-                        chat_id,
-                        users[chat_id]["msg_id"]
-                    )
-                except:
-                    pass
-        time.sleep(10)
+
+            bot.edit_message_text(
+                build(prices, u["interval"]),
+                chat_id,
+                u["msg_id"],
+                reply_markup=panel(u["interval"])
+            )
+
+        except:
+            pass
+
+        time.sleep(u["interval"])
 
 # ---------------- START ----------------
 @bot.message_handler(commands=["start"])
@@ -105,36 +110,52 @@ def start(m):
 
     msg = bot.send_message(
         m.chat.id,
-        build(prices),
-        reply_markup=menu()
+        build(prices, 5),
+        reply_markup=panel(5)
     )
 
     users[m.chat.id] = {
         "msg_id": msg.message_id,
-        "section": "prices"
+        "interval": 5
     }
 
     threading.Thread(target=updater, args=(m.chat.id,), daemon=True).start()
 
-# ---------------- MENU ----------------
-@bot.message_handler(func=lambda m: m.text == "💰 Narxlar")
-def p(m):
-    users[m.chat.id]["section"] = "prices"
-    bot.send_message(m.chat.id, "📡 Live ON")
+# ---------------- CALLBACK ----------------
+@bot.callback_query_handler(func=lambda call: True)
+def cb(call):
+    uid = call.message.chat.id
+    u = users.get(uid)
 
-@bot.message_handler(func=lambda m: m.text == "📊 Statistika")
-def s(m):
-    prices = get_prices()
-    bot.send_message(m.chat.id, stats(prices))
+    if not u:
+        return
 
-@bot.message_handler(func=lambda m: m.text == "⚙️ Sozlamalar")
-def settings(m):
-    bot.send_message(m.chat.id,
-        "⚙️ Sozlamalar:\n"
-        "• 💰 Narxlar\n"
-        "• 📊 Statistika\n"
-        "• /start restart"
-    )
+    if call.data == "plus":
+        u["interval"] += 1
+
+    elif call.data == "minus":
+        if u["interval"] > 1:
+            u["interval"] -= 1
+
+    elif call.data == "reset":
+        u["interval"] = 5
+
+    try:
+        bot.answer_callback_query(call.id, "⚡ Updated")
+    except:
+        pass
+
+    try:
+        prices = get_prices()
+
+        bot.edit_message_text(
+            build(prices, u["interval"]),
+            uid,
+            u["msg_id"],
+            reply_markup=panel(u["interval"])
+        )
+    except:
+        pass
 
 # ---------------- RUN ----------------
 bot.infinity_polling()
