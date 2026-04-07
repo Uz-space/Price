@@ -13,6 +13,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 # ========== SOZLAMALAR ==========
 BOT_TOKEN = "8627453491:AAFEpPXTg-uT_wLCQ--8--7XkQPYoj_ZXuE"
 ADMIN_ID = 7399101034  # Telegram ID-ingiz
+CHANNEL_ID = "@AlphaHookahOrders"  # Kanal username
 
 # ========== BAZA ==========
 conn = sqlite3.connect("hookah_bot.db")
@@ -100,7 +101,7 @@ admin_main = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
-# ========== YORDAMCHI ==========
+# ========== YORDAMCHI FUNKSIYALAR ==========
 def is_blocked(user_id):
     cursor.execute("SELECT blocked FROM users WHERE user_id=?", (user_id,))
     row = cursor.fetchone()
@@ -112,6 +113,52 @@ async def send_to_user(user_id, text, reply_markup=None):
             await bot.send_message(user_id, text, reply_markup=reply_markup)
         except:
             pass
+
+async def send_to_channel(order_id, event_type, user_first_name=None):
+    """Kanalga chiroyli xabar yuboradi (Nozchangebot uslubida)"""
+    cursor.execute("SELECT user_id, products, total, address, delivery_time, date FROM orders WHERE id=?", (order_id,))
+    row = cursor.fetchone()
+    if not row:
+        return
+    user_id, products, total, address, delivery_time, date = row
+
+    # Foydalanuvchi ismini olish
+    if not user_first_name:
+        try:
+            user = await bot.get_chat(user_id)
+            user_first_name = user.first_name
+        except:
+            user_first_name = str(user_id)
+
+    # Sana va vaqtni chiroyli formatlash
+    date_formatted = datetime.strptime(date, "%Y-%m-%d %H:%M:%S").strftime("%d.%m.%Y %H:%M")
+
+    if event_type == "new":
+        title = "🍃 AlphaHookah - Yangi buyurtma"
+        status_icon = "⏳ To‘lov kutilmoqda"
+    elif event_type == "paid":
+        title = "🍃 AlphaHookah - To‘lov tasdiqlandi"
+        status_icon = "✅ To‘lov tasdiqlandi"
+    elif event_type == "delivered":
+        title = "🍃 AlphaHookah - Buyurtma yetkazildi"
+        status_icon = "🚚 Yetkazildi"
+    else:
+        return
+
+    text = f"""<b>{title}</b>
+🆔: #{order_id}
+👤: {user_first_name}
+📦: {products}
+💰: {total} so'm
+📍: {address}
+⏰: {delivery_time}
+🔎 Holat: {status_icon}
+📝: {date_formatted}"""
+
+    try:
+        await bot.send_message(CHANNEL_ID, text, parse_mode="HTML")
+    except Exception as e:
+        print(f"Kanalga xabar yuborib bo‘lmadi: {e}")
 
 # ========== START ==========
 @dp.message(Command("start"))
@@ -292,6 +339,7 @@ async def get_delivery_time(message: types.Message, state: FSMContext):
     order_id = cursor.lastrowid
     cursor.execute("DELETE FROM cart WHERE user_id=?", (user_id,))
     conn.commit()
+    
     await message.answer(
         f"📦 Buyurtma #{order_id} qabul qilindi.\n"
         f"Manzil: {address}\nVaqt: {delivery_time}\nJami: {total} so'm\n\n"
@@ -302,6 +350,9 @@ async def get_delivery_time(message: types.Message, state: FSMContext):
         ])
     )
     await bot.send_message(ADMIN_ID, f"🆕 Yangi buyurtma #{order_id}\nFoydalanuvchi: {user_id}\n{products_text}\nJami: {total}\nManzil: {address}\nVaqt: {delivery_time}\nHolat: to‘lov kutilmoqda")
+    
+    # Kanalga yuborish (yangi buyurtma)
+    await send_to_channel(order_id, "new", message.from_user.first_name)
     await state.clear()
 
 @dp.callback_query(lambda c: c.data.startswith("paid_"))
@@ -323,7 +374,7 @@ async def user_paid(callback: types.CallbackQuery):
     await callback.message.answer("To‘lov ma'lumotingiz adminga yuborildi.")
     await callback.answer()
 
-# ========== ADMIN: TO'LOVNI TASDIQLASH VA YETKAZISH BOSQICHLARI ==========
+# ========== ADMIN: TO'LOVNI TASDIQLASH VA YETKAZISH ==========
 @dp.callback_query(lambda c: c.data.startswith("confirm_payment_"))
 async def confirm_payment(callback: types.CallbackQuery):
     if callback.from_user.id != ADMIN_ID:
@@ -339,7 +390,10 @@ async def confirm_payment(callback: types.CallbackQuery):
     cursor.execute("UPDATE orders SET status='qabul_qilingan' WHERE id=?", (order_id,))
     conn.commit()
     await send_to_user(user_id, f"✅ #{order_id} buyurtmangiz to‘lovi tasdiqlandi. Admin buyurtmani tayyorlaydi.")
-    # Admin panelda "Tayyor" va "Yetkazildi" tugmalari
+    
+    # Kanalga xabar (to‘lov tasdiqlandi)
+    await send_to_channel(order_id, "paid")
+    
     ready_kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔧 Tayyor", callback_data=f"ready_{order_id}"),
          InlineKeyboardButton(text="🚚 Yetkazildi", callback_data=f"delivered_{order_id}")]
@@ -378,6 +432,10 @@ async def order_delivered(callback: types.CallbackQuery):
     cursor.execute("UPDATE orders SET status='yetkazilgan' WHERE id=?", (order_id,))
     conn.commit()
     await send_to_user(user_id, f"✅ Buyurtma #{order_id} yetkazildi. Rahmat!")
+    
+    # Kanalga xabar (yetkazildi)
+    await send_to_channel(order_id, "delivered")
+    
     await callback.message.edit_text(f"✅ Buyurtma #{order_id} yetkazilgan deb belgilandi.")
     await callback.answer()
 
