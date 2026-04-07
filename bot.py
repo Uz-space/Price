@@ -4,430 +4,193 @@ import time
 from datetime import datetime
 import threading
 
-# ═══════════════════════════════════════════
-#  SOZLAMALAR
-# ═══════════════════════════════════════════
 TOKEN = "8134986426:AAF_Np2hSvspbrBfcsjsr9Szd77yb0WiIBI"
 DEFAULT_INTERVAL = 10
 
-bot = telebot.TeleBot(TOKEN)
+bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
 
-# ═══════════════════════════════════════════
-#  KRIPTO MA'LUMOTLARI
-# ═══════════════════════════════════════════
 coins = {
-    "BTC":  "BTCUSDT",
-    "ETH":  "ETHUSDT",
-    "BNB":  "BNBUSDT",
-    "SOL":  "SOLUSDT",
-    "LTC":  "LTCUSDT",
-    "TON":  "TONUSDT",
-    "TRX":  "TRXUSDT",
+    "BTC": "BTCUSDT",
+    "ETH": "ETHUSDT",
+    "BNB": "BNBUSDT",
+    "SOL": "SOLUSDT",
+    "LTC": "LTCUSDT",
+    "TON": "TONUSDT",
+    "TRX": "TRXUSDT",
     "DOGE": "DOGEUSDT",
 }
 
 emoji_id = {
-    "BTC":  "5215277894456089919",
-    "ETH":  "5215469686220688535",
-    "BNB":  "5215501052366852398",
-    "SOL":  "5215644439850028163",
-    "LTC":  "5215397251597243962",
-    "TON":  "5215541953340410399",
-    "TRX":  "5215676493190960888",
+    "BTC": "5215277894456089919",
+    "ETH": "5215469686220688535",
+    "BNB": "5215501052366852398",
+    "SOL": "5215644439850028163",
+    "LTC": "5215397251597243962",
+    "TON": "5215541953340410399",
+    "TRX": "5215676493190960888",
     "DOGE": "5215580724010193095",
 }
 
-# ═══════════════════════════════════════════
-#  FOYDALANUVCHI HOLATI
-# ═══════════════════════════════════════════
-users: dict[int, dict] = {}
-users_lock = threading.Lock()
+users = {}
+lock = threading.Lock()
 
-# ═══════════════════════════════════════════
-#  BINANCE API
-# ═══════════════════════════════════════════
-def get_prices() -> dict:
+# ✅ API (24h qaytdi + fallback)
+def get_prices():
     try:
         r = requests.get("https://api.binance.com/api/v3/ticker/24hr", timeout=5)
         data = r.json()
         result = {}
+
         for item in data:
             for coin, symbol in coins.items():
                 if item["symbol"] == symbol:
                     result[coin] = {
-                        "price":  float(item["lastPrice"]),
+                        "price": float(item["lastPrice"]),
                         "change": float(item["priceChangePercent"]),
-                        "high":   float(item["highPrice"]),
-                        "low":    float(item["lowPrice"]),
+                        "high": float(item["highPrice"]),
+                        "low": float(item["lowPrice"]),
                         "volume": float(item["quoteVolume"]),
                     }
         return result
-    except Exception:
+    except Exception as e:
+        print("API ERROR:", e)
         return {}
 
-# ═══════════════════════════════════════════
-#  XABAR QURUVCHILAR
-# ═══════════════════════════════════════════
-def fmt_coin(coin: str) -> str:
-    return f"<tg-emoji emoji-id='{emoji_id[coin]}'>🪙</tg-emoji> <b>{coin}</b>"
+def fmt_coin(c):
+    return f"<tg-emoji emoji-id='{emoji_id[c]}'>🪙</tg-emoji> <b>{c}</b>"
 
-def build_prices(prices: dict, prev: dict, interval: int) -> str:
+def build_prices(prices, prev, interval):
     t = datetime.now().strftime("%H:%M:%S")
-    lines = ["<b>💰 Kripto Narxlar</b>\n"]
-    for coin, info in prices.items():
-        price  = info["price"]
-        prev_p = prev.get(coin, {}).get("price", price)
-        arrow  = "🟢" if price > prev_p else ("🔴" if price < prev_p else "⚪")
-        change = info["change"]
-        ch_str = f"{'🟢 +' if change > 0 else '🔴 '}{change:.2f}%"
-        lines.append(f"{fmt_coin(coin)}  {arrow}  <code>${price:,.4f}</code>  {ch_str}")
-    lines.append(f"\n🕐 {t}  |  🔄 {interval}s")
-    return "\n".join(lines)
+    text = "<b>💰 Kripto Narxlar</b>\n\n"
 
-def build_stats(prices: dict) -> str:
-    t = datetime.now().strftime("%H:%M:%S")
-    lines = ["<b>📊 24 Soatlik Statistika</b>\n"]
-    for coin, info in prices.items():
-        lines.append(
-            f"{fmt_coin(coin)}\n"
-            f"   💵 Narx:    <code>${info['price']:,.4f}</code>\n"
-            f"   📈 Max:     <code>${info['high']:,.4f}</code>\n"
-            f"   📉 Min:     <code>${info['low']:,.4f}</code>\n"
-            f"   🔄 O'zgarish: <b>{'+'if info['change']>0 else ''}{info['change']:.2f}%</b>\n"
-            f"   💹 Volume:  <code>${info['volume']:,.0f}</code>\n"
+    for c, i in prices.items():
+        p = i["price"]
+        pp = prev.get(c, {}).get("price", p)
+
+        arrow = "🟢" if p > pp else ("🔴" if p < pp else "⚪")
+        ch = i["change"]
+        chs = f"{'🟢 +' if ch>0 else '🔴 '}{ch:.2f}%"
+
+        text += f"{fmt_coin(c)} {arrow} <code>${p:,.4f}</code> {chs}\n"
+
+    text += f"\n🕐 {t} | 🔄 {interval}s"
+    return text
+
+def build_stats(prices):
+    text = "<b>📊 24h Statistika</b>\n\n"
+    for c, i in prices.items():
+        text += (
+            f"{fmt_coin(c)}\n"
+            f"💵 <code>${i['price']:,.4f}</code>\n"
+            f"📈 {i['high']:,.2f}\n"
+            f"📉 {i['low']:,.2f}\n"
+            f"🔄 {i['change']:.2f}%\n\n"
         )
-    lines.append(f"🕐 {t}")
-    return "\n".join(lines)
+    return text
 
-def build_settings(user: dict) -> str:
-    return (
-        "<b>⚙️ Sozlamalar</b>\n\n"
-        f"🔄 Yangilanish intervali: <b>{user['interval']} soniya</b>\n\n"
-        "Intervalni o'zgartirish uchun quyidagi tugmani bosing:"
-    )
-
-def build_alerts(user: dict) -> str:
-    lines = ["<b>🔔 Signal / Alert</b>\n"]
-    alerts = user.get("alerts", {})
-    has_any = any(v["above"] or v["below"] for v in alerts.values())
-    if not has_any:
-        lines.append("⚠️ Hozircha hech qanday signal o'rnatilmagan.\n")
-    else:
-        for coin, a in alerts.items():
-            if a["above"] or a["below"]:
-                lines.append(f"{fmt_coin(coin)}")
-                if a["above"]: lines.append(f"   🔼 Yuqori: <code>${a['above']:,.4f}</code>")
-                if a["below"]: lines.append(f"   🔽 Quyi:   <code>${a['below']:,.4f}</code>")
-                lines.append("")
-    lines.append("➕ Signal qo'shish:  /alert BTC above 70000")
-    lines.append("🗑 O'chirish:        /delalert BTC")
-    return "\n".join(lines)
-
-# ═══════════════════════════════════════════
-#  KLAVIATURALAR
-# ═══════════════════════════════════════════
-def main_reply_kb():
-    kb = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.row("💰 Narxlar", "📊 Statistika")
-    kb.row("🔔 Signallar", "⚙️ Sozlamalar")
-    return kb
-
-def prices_inline_kb(active: bool):
-    kb = telebot.types.InlineKeyboardMarkup()
-    lbl, cb = ("⏹ To'xtatish", "stop") if active else ("▶️ Boshlash", "resume")
-    kb.row(
-        telebot.types.InlineKeyboardButton(lbl, callback_data=cb),
-        telebot.types.InlineKeyboardButton("🔃 Yangilash", callback_data="refresh"),
-    )
-    return kb
-
-def stats_inline_kb():
-    kb = telebot.types.InlineKeyboardMarkup()
-    kb.add(telebot.types.InlineKeyboardButton("🔃 Yangilash", callback_data="stats_refresh"))
-    return kb
-
-def settings_inline_kb():
-    kb = telebot.types.InlineKeyboardMarkup()
-    row = []
-    for s in [3, 5, 10, 30, 60]:
-        row.append(telebot.types.InlineKeyboardButton(f"⏱ {s}s", callback_data=f"setinterval_{s}"))
-    kb.row(*row)
-    return kb
-
-def alerts_inline_kb():
-    kb = telebot.types.InlineKeyboardMarkup()
-    kb.add(telebot.types.InlineKeyboardButton("🗑 Barcha signallarni o'chirish", callback_data="clear_alerts"))
-    return kb
-
-# ═══════════════════════════════════════════
-#  ALERT TEKSHIRUVI
-# ═══════════════════════════════════════════
-def check_alerts(chat_id: int, prices: dict, user: dict):
-    alerts = user.get("alerts", {})
-    for coin, a in alerts.items():
-        info = prices.get(coin)
-        if not info:
+# ✅ ALERT
+def check_alerts(chat_id, prices, user):
+    for c, a in user["alerts"].items():
+        if c not in prices:
             continue
-        price = info["price"]
-        if a["above"] and price >= a["above"]:
-            bot.send_message(
-                chat_id,
-                f"🔔 <b>SIGNAL!</b>\n{fmt_coin(coin)} — <code>${price:,.4f}</code>\n"
-                f"🔼 Chegara: <code>${a['above']:,.4f}</code> dan oshdi!",
-                parse_mode="HTML"
-            )
-            with users_lock:
-                users[chat_id]["alerts"][coin]["above"] = None
-        if a["below"] and price <= a["below"]:
-            bot.send_message(
-                chat_id,
-                f"🔔 <b>SIGNAL!</b>\n{fmt_coin(coin)} — <code>${price:,.4f}</code>\n"
-                f"🔽 Chegara: <code>${a['below']:,.4f}</code> dan tushdi!",
-                parse_mode="HTML"
-            )
-            with users_lock:
-                users[chat_id]["alerts"][coin]["below"] = None
+        p = prices[c]["price"]
 
-# ═══════════════════════════════════════════
-#  AUTO-YANGILANISH THREADI
-# ═══════════════════════════════════════════
-def updater_thread(chat_id: int):
+        if a["above"] and p >= a["above"]:
+            bot.send_message(chat_id, f"🔔 {c} ${p} dan yuqoriga chiqdi!")
+            user["alerts"][c]["above"] = None
+
+        if a["below"] and p <= a["below"]:
+            bot.send_message(chat_id, f"🔔 {c} ${p} dan pastga tushdi!")
+            user["alerts"][c]["below"] = None
+
+# ✅ THREAD
+def updater(chat_id):
     while True:
-        with users_lock:
-            user = users.get(chat_id)
-            if not user:
+        with lock:
+            if chat_id not in users:
                 return
-            active   = user["active"]
-            interval = user["interval"]
-            msg_id   = user["message_id"]
-            section  = user.get("section", "prices")
-            prev     = user.get("prev_prices", {})
+            u = users[chat_id]
 
-        if not active:
+        if not u["active"]:
             time.sleep(1)
             continue
 
         prices = get_prices()
         if not prices:
-            time.sleep(interval)
+            time.sleep(u["interval"])
             continue
 
-        with users_lock:
-            u = dict(users.get(chat_id, {}))
         check_alerts(chat_id, prices, u)
 
-        if section == "prices":
-            text = build_prices(prices, prev, interval)
+        if u["section"] == "prices":
+            txt = build_prices(prices, u["prev"], u["interval"])
             try:
-                bot.edit_message_text(
-                    text, chat_id, msg_id,
-                    parse_mode="HTML",
-                    reply_markup=prices_inline_kb(active=True)
-                )
-            except Exception:
+                bot.edit_message_text(txt, chat_id, u["msg_id"])
+            except:
                 pass
 
-        with users_lock:
-            if chat_id in users:
-                users[chat_id]["prev_prices"] = prices
+        with lock:
+            users[chat_id]["prev"] = prices
 
-        time.sleep(interval)
+        time.sleep(u["interval"])
 
-# ═══════════════════════════════════════════
-#  YORDAMCHI
-# ═══════════════════════════════════════════
-def ensure_user(chat_id: int, message_id: int = 0):
-    with users_lock:
-        if chat_id not in users:
-            users[chat_id] = {
-                "message_id":  message_id,
-                "active":      True,
-                "interval":    DEFAULT_INTERVAL,
-                "prev_prices": {},
-                "section":     "prices",
-                "alerts":      {c: {"above": None, "below": None} for c in coins},
-            }
-            t = threading.Thread(target=updater_thread, args=(chat_id,), daemon=True)
-            t.start()
-
-# ═══════════════════════════════════════════
-#  BUYRUQLAR
-# ═══════════════════════════════════════════
+# ✅ START
 @bot.message_handler(commands=["start"])
-def cmd_start(message):
-    chat_id = message.chat.id
-    bot.send_message(
-        chat_id,
-        "👋 <b>AlphaCryptoBot</b> ga xush kelibsiz!\n\nQuyidagi menyudan bo'lim tanlang 👇",
-        parse_mode="HTML",
-        reply_markup=main_reply_kb()
-    )
+def start(m):
+    chat_id = m.chat.id
     prices = get_prices()
-    text = build_prices(prices, {}, DEFAULT_INTERVAL)
-    sent = bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=prices_inline_kb(active=True))
-    ensure_user(chat_id, sent.message_id)
-    with users_lock:
-        users[chat_id].update({
-            "message_id":  sent.message_id,
-            "prev_prices": prices,
-            "section":     "prices",
-            "active":      True,
-        })
+    txt = build_prices(prices, {}, DEFAULT_INTERVAL)
 
+    msg = bot.send_message(chat_id, txt)
+
+    with lock:
+        users[chat_id] = {
+            "msg_id": msg.message_id,
+            "interval": DEFAULT_INTERVAL,
+            "active": True,
+            "prev": prices,
+            "section": "prices",
+            "alerts": {c: {"above": None, "below": None} for c in coins}
+        }
+
+    threading.Thread(target=updater, args=(chat_id,), daemon=True).start()
+
+# ✅ ALERT COMMAND
 @bot.message_handler(commands=["alert"])
-def cmd_alert(message):
-    chat_id = message.chat.id
-    parts = message.text.split()
-    if len(parts) != 4:
-        bot.reply_to(message, "⚠️ Format: /alert BTC above 70000\nYoki:    /alert ETH below 3000")
-        return
-    _, coin, direction, value = parts
-    coin = coin.upper()
-    if coin not in coins:
-        bot.reply_to(message, f"❌ Noma'lum token: {coin}\nMavjud: {', '.join(coins)}")
-        return
-    if direction not in ("above", "below"):
-        bot.reply_to(message, "❌ Yo'nalish: above yoki below")
-        return
+def alert(m):
     try:
-        val = float(value)
-    except ValueError:
-        bot.reply_to(message, "❌ Narx son bo'lishi kerak.")
-        return
-    ensure_user(chat_id)
-    with users_lock:
-        users[chat_id]["alerts"][coin][direction] = val
-    d = "yuqoriga" if direction == "above" else "pastga"
-    bot.reply_to(message, f"✅ {coin} narxi ${val:,.4f} dan {d} o'tganda signal keladi.")
+        _, c, d, v = m.text.split()
+        c = c.upper()
+        v = float(v)
 
+        with lock:
+            users[m.chat.id]["alerts"][c][d] = v
+
+        bot.reply_to(m, "✅ Signal qo‘shildi")
+    except:
+        bot.reply_to(m, "⚠️ /alert BTC above 70000")
+
+# ✅ DELETE ALERT
 @bot.message_handler(commands=["delalert"])
-def cmd_delalert(message):
-    chat_id = message.chat.id
-    parts = message.text.split()
-    if len(parts) < 2:
-        bot.reply_to(message, "⚠️ Format: /delalert BTC")
-        return
-    coin = parts[1].upper()
-    ensure_user(chat_id)
-    with users_lock:
-        if coin in users[chat_id]["alerts"]:
-            users[chat_id]["alerts"][coin] = {"above": None, "below": None}
-    bot.reply_to(message, f"🗑 {coin} signallari o'chirildi.")
+def delalert(m):
+    c = m.text.split()[1].upper()
+    with lock:
+        users[m.chat.id]["alerts"][c] = {"above": None, "below": None}
+    bot.reply_to(m, "🗑 O‘chirildi")
 
-# ═══════════════════════════════════════════
-#  REPLY KEYBOARD
-# ═══════════════════════════════════════════
+# ✅ MENYU
 @bot.message_handler(func=lambda m: m.text == "💰 Narxlar")
-def section_prices(message):
-    chat_id = message.chat.id
-    ensure_user(chat_id)
-    prices = get_prices()
-    with users_lock:
-        prev = users[chat_id].get("prev_prices", {})
-        iv   = users[chat_id]["interval"]
-        users[chat_id].update({"prev_prices": prices, "section": "prices", "active": True})
-    text = build_prices(prices, prev, iv)
-    sent = bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=prices_inline_kb(active=True))
-    with users_lock:
-        users[chat_id]["message_id"] = sent.message_id
+def prices_menu(m):
+    with lock:
+        users[m.chat.id]["section"] = "prices"
+    bot.send_message(m.chat.id, "📡 Yangilanmoqda...")
 
 @bot.message_handler(func=lambda m: m.text == "📊 Statistika")
-def section_stats(message):
-    chat_id = message.chat.id
-    ensure_user(chat_id)
-    with users_lock:
-        users[chat_id]["section"] = "stats"
+def stats_menu(m):
     prices = get_prices()
-    bot.send_message(chat_id, build_stats(prices), parse_mode="HTML", reply_markup=stats_inline_kb())
+    bot.send_message(m.chat.id, build_stats(prices))
 
-@bot.message_handler(func=lambda m: m.text == "⚙️ Sozlamalar")
-def section_settings(message):
-    chat_id = message.chat.id
-    ensure_user(chat_id)
-    with users_lock:
-        users[chat_id]["section"] = "settings"
-        user = dict(users[chat_id])
-    bot.send_message(chat_id, build_settings(user), parse_mode="HTML", reply_markup=settings_inline_kb())
-
-@bot.message_handler(func=lambda m: m.text == "🔔 Signallar")
-def section_alerts(message):
-    chat_id = message.chat.id
-    ensure_user(chat_id)
-    with users_lock:
-        users[chat_id]["section"] = "alerts"
-        user = dict(users[chat_id])
-    bot.send_message(chat_id, build_alerts(user), parse_mode="HTML", reply_markup=alerts_inline_kb())
-
-# ═══════════════════════════════════════════
-#  INLINE CALLBACK
-# ═══════════════════════════════════════════
-@bot.callback_query_handler(func=lambda c: True)
-def handle_callback(call):
-    chat_id = call.message.chat.id
-    ensure_user(chat_id)
-    data = call.data
-
-    if data == "stop":
-        with users_lock:
-            users[chat_id]["active"] = False
-        try:
-            bot.edit_message_reply_markup(chat_id, call.message.message_id, reply_markup=prices_inline_kb(active=False))
-        except Exception: pass
-        bot.answer_callback_query(call.id, "⏹ To'xtatildi.")
-
-    elif data == "resume":
-        with users_lock:
-            users[chat_id].update({"active": True, "message_id": call.message.message_id, "section": "prices"})
-        try:
-            bot.edit_message_reply_markup(chat_id, call.message.message_id, reply_markup=prices_inline_kb(active=True))
-        except Exception: pass
-        bot.answer_callback_query(call.id, "▶️ Boshlandi.")
-
-    elif data == "refresh":
-        prices = get_prices()
-        with users_lock:
-            prev   = users[chat_id].get("prev_prices", {})
-            iv     = users[chat_id]["interval"]
-            active = users[chat_id]["active"]
-            users[chat_id]["prev_prices"] = prices
-        try:
-            bot.edit_message_text(build_prices(prices, prev, iv), chat_id, call.message.message_id,
-                                  parse_mode="HTML", reply_markup=prices_inline_kb(active=active))
-        except Exception: pass
-        bot.answer_callback_query(call.id, "✅ Yangilandi!")
-
-    elif data == "stats_refresh":
-        prices = get_prices()
-        try:
-            bot.edit_message_text(build_stats(prices), chat_id, call.message.message_id,
-                                  parse_mode="HTML", reply_markup=stats_inline_kb())
-        except Exception: pass
-        bot.answer_callback_query(call.id, "✅ Yangilandi!")
-
-    elif data.startswith("setinterval_"):
-        iv = int(data.split("_")[1])
-        with users_lock:
-            users[chat_id]["interval"] = iv
-            user = dict(users[chat_id])
-        try:
-            bot.edit_message_text(build_settings(user), chat_id, call.message.message_id,
-                                  parse_mode="HTML", reply_markup=settings_inline_kb())
-        except Exception: pass
-        bot.answer_callback_query(call.id, f"✅ Interval {iv} soniya!")
-
-    elif data == "clear_alerts":
-        with users_lock:
-            users[chat_id]["alerts"] = {c: {"above": None, "below": None} for c in coins}
-            user = dict(users[chat_id])
-        try:
-            bot.edit_message_text(build_alerts(user), chat_id, call.message.message_id,
-                                  parse_mode="HTML", reply_markup=alerts_inline_kb())
-        except Exception: pass
-        bot.answer_callback_query(call.id, "🗑 Barcha signallar o'chirildi.")
-
-# ═══════════════════════════════════════════
-#  ISHGA TUSHIRISH
-# ═══════════════════════════════════════════
+# ✅ RUN
 if __name__ == "__main__":
-    print("✅ AlphaCryptoBot ishga tushdi...")
-    bot.infinity_polling(timeout=30, long_polling_timeout=20)
+    print("FULL BOT ISHGA TUSHDI")
+    bot.infinity_polling()
