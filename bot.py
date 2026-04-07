@@ -12,11 +12,11 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 # ========== SOZLAMALAR ==========
 BOT_TOKEN = "8627453491:AAFEpPXTg-uT_wLCQ--8--7XkQPYoj_ZXuE"
-ADMIN_ID = 7399101034  # Telegram ID-ingiz
-CHANNEL_ID = "@AlphaHookahOrders"  # Kanal username
+ADMIN_ID = 7399101034 
+CHANNEL_ID = "@AlphaHookahOrders"
 
-# ========== BAZA ==========
-conn = sqlite3.connect("hookah_bot.db")
+# ========== BAZA (yangilangan) ==========
+conn = sqlite3.connect("hookah_bot.db", check_same_thread=False)
 cursor = conn.cursor()
 
 cursor.execute("""
@@ -49,6 +49,8 @@ CREATE TABLE IF NOT EXISTS orders (
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS users (
     user_id INTEGER PRIMARY KEY,
+    first_name TEXT,
+    username TEXT,
     blocked INTEGER DEFAULT 0
 )
 """)
@@ -59,7 +61,7 @@ storage = MemoryStorage()
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=storage)
 
-# ========== FSM HOLATLARI ==========
+# ========== FSM ==========
 class AddProduct(StatesGroup):
     name = State()
     price = State()
@@ -101,7 +103,7 @@ admin_main = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
-# ========== YORDAMCHI FUNKSIYALAR ==========
+# ========== YORDAMCHI ==========
 def is_blocked(user_id):
     cursor.execute("SELECT blocked FROM users WHERE user_id=?", (user_id,))
     row = cursor.fetchone()
@@ -114,23 +116,20 @@ async def send_to_user(user_id, text, reply_markup=None):
         except:
             pass
 
-async def send_to_channel(order_id, event_type, user_first_name=None):
-    """Kanalga chiroyli xabar yuboradi (Nozchangebot uslubida)"""
-    cursor.execute("SELECT user_id, products, total, address, delivery_time, date FROM orders WHERE id=?", (order_id,))
+async def send_to_channel(order_id, event_type):
+    """Kanalga chiroyli xabar yuboradi (get_chat chaqirmaydi)"""
+    cursor.execute("""
+        SELECT o.user_id, o.products, o.total, o.address, o.delivery_time, o.date, u.first_name
+        FROM orders o
+        LEFT JOIN users u ON o.user_id = u.user_id
+        WHERE o.id = ?
+    """, (order_id,))
     row = cursor.fetchone()
     if not row:
         return
-    user_id, products, total, address, delivery_time, date = row
+    user_id, products, total, address, delivery_time, date, first_name = row
+    user_name = first_name or str(user_id)
 
-    # Foydalanuvchi ismini olish
-    if not user_first_name:
-        try:
-            user = await bot.get_chat(user_id)
-            user_first_name = user.first_name
-        except:
-            user_first_name = str(user_id)
-
-    # Sana va vaqtni chiroyli formatlash
     date_formatted = datetime.strptime(date, "%Y-%m-%d %H:%M:%S").strftime("%d.%m.%Y %H:%M")
 
     if event_type == "new":
@@ -147,7 +146,7 @@ async def send_to_channel(order_id, event_type, user_first_name=None):
 
     text = f"""<b>{title}</b>
 🆔: #{order_id}
-👤: {user_first_name}
+👤: {user_name}
 📦: {products}
 💰: {total} so'm
 📍: {address}
@@ -158,20 +157,23 @@ async def send_to_channel(order_id, event_type, user_first_name=None):
     try:
         await bot.send_message(CHANNEL_ID, text, parse_mode="HTML")
     except Exception as e:
-        print(f"Kanalga xabar yuborib bo‘lmadi: {e}")
+        print(f"Kanalga xabar yuborilmadi: {e}")
 
 # ========== START ==========
 @dp.message(Command("start"))
 async def start(message: types.Message):
     user_id = message.from_user.id
-    cursor.execute("INSERT OR IGNORE INTO users (user_id) VALUES (?)", (user_id,))
+    first_name = message.from_user.first_name or ""
+    username = message.from_user.username or ""
+    cursor.execute("INSERT OR IGNORE INTO users (user_id, first_name, username) VALUES (?, ?, ?)",
+                   (user_id, first_name, username))
     conn.commit()
     if user_id == ADMIN_ID:
         await message.answer("👑 Admin panel", reply_markup=admin_main)
     else:
         await message.answer("🍃 AlphaHookah bar botiga xush kelibsiz!", reply_markup=user_menu)
 
-# ========== FOYDALANUVCHI: KATEGORIYALI MENYU ==========
+# ========== MENYU ==========
 @dp.message(lambda msg: msg.text == "🍽 Menyu")
 async def show_categories(message: types.Message):
     cursor.execute("SELECT DISTINCT category FROM products")
@@ -218,6 +220,11 @@ async def add_to_cart(callback: types.CallbackQuery):
         return
     product_id = int(callback.data.split("_")[1])
     user_id = callback.from_user.id
+    # Mahsulot mavjudligini tekshirish
+    cursor.execute("SELECT id FROM products WHERE id=?", (product_id,))
+    if not cursor.fetchone():
+        await callback.answer("Mahsulot topilmadi!", show_alert=True)
+        return
     cursor.execute("SELECT quantity FROM cart WHERE user_id=? AND product_id=?", (user_id, product_id))
     row = cursor.fetchone()
     if row:
@@ -227,19 +234,26 @@ async def add_to_cart(callback: types.CallbackQuery):
     conn.commit()
     await callback.answer("✅ Savatchaga qo'shildi!", show_alert=True)
 
-# ========== SAVATCHA ==========
+# ========== SAVATCHA (xatoliklarni tekshirish bilan) ==========
 @dp.message(lambda msg: msg.text == "🛒 Savatcha")
 async def show_cart(message: types.Message):
     user_id = message.from_user.id
-    cursor.execute("""
-        SELECT p.id, p.name, p.price, c.quantity 
-        FROM cart c JOIN products p ON c.product_id = p.id
-        WHERE c.user_id = ?
-    """, (user_id,))
-    items = cursor.fetchall()
+    try:
+        cursor.execute("""
+            SELECT p.id, p.name, p.price, c.quantity 
+            FROM cart c
+            JOIN products p ON c.product_id = p.id
+            WHERE c.user_id = ?
+        """, (user_id,))
+        items = cursor.fetchall()
+    except Exception as e:
+        await message.answer(f"Xatolik: {e}")
+        return
+
     if not items:
         await message.answer("🛒 Savatcha bo'sh.")
         return
+
     text = "🛍 *Savatchangiz:*\n"
     total = 0
     inline_kb = InlineKeyboardMarkup(inline_keyboard=[])
@@ -296,7 +310,7 @@ async def clear_cart(callback: types.CallbackQuery):
     await callback.answer("Savatcha tozalandi!", show_alert=True)
     await callback.message.delete()
 
-# ========== BUYURTMA (MANZIL, VAQT, TO'LOV) ==========
+# ========== BUYURTMA ==========
 @dp.callback_query(lambda c: c.data == "order_now")
 async def order_now(callback: types.CallbackQuery, state: FSMContext):
     if is_blocked(callback.from_user.id):
@@ -328,6 +342,10 @@ async def get_delivery_time(message: types.Message, state: FSMContext):
         WHERE c.user_id = ?
     """, (user_id,))
     items = cursor.fetchall()
+    if not items:
+        await message.answer("Savatcha bo'sh, buyurtma bekor qilindi.")
+        await state.clear()
+        return
     total = sum(price * qty for _, price, qty in items)
     products_text = ", ".join([f"{name} x{qty}" for name, _, qty in items])
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -339,7 +357,7 @@ async def get_delivery_time(message: types.Message, state: FSMContext):
     order_id = cursor.lastrowid
     cursor.execute("DELETE FROM cart WHERE user_id=?", (user_id,))
     conn.commit()
-    
+
     await message.answer(
         f"📦 Buyurtma #{order_id} qabul qilindi.\n"
         f"Manzil: {address}\nVaqt: {delivery_time}\nJami: {total} so'm\n\n"
@@ -349,10 +367,8 @@ async def get_delivery_time(message: types.Message, state: FSMContext):
             [InlineKeyboardButton(text="✅ To‘lov qildim", callback_data=f"paid_{order_id}")]
         ])
     )
-    await bot.send_message(ADMIN_ID, f"🆕 Yangi buyurtma #{order_id}\nFoydalanuvchi: {user_id}\n{products_text}\nJami: {total}\nManzil: {address}\nVaqt: {delivery_time}\nHolat: to‘lov kutilmoqda")
-    
-    # Kanalga yuborish (yangi buyurtma)
-    await send_to_channel(order_id, "new", message.from_user.first_name)
+    await bot.send_message(ADMIN_ID, f"🆕 Yangi buyurtma #{order_id}\nFoydalanuvchi: {user_id}\n{products_text}\nJami: {total}\nManzil: {address}\nVaqt: {delivery_time}")
+    await send_to_channel(order_id, "new")
     await state.clear()
 
 @dp.callback_query(lambda c: c.data.startswith("paid_"))
@@ -374,7 +390,7 @@ async def user_paid(callback: types.CallbackQuery):
     await callback.message.answer("To‘lov ma'lumotingiz adminga yuborildi.")
     await callback.answer()
 
-# ========== ADMIN: TO'LOVNI TASDIQLASH VA YETKAZISH ==========
+# ========== ADMIN TASDIQLASH ==========
 @dp.callback_query(lambda c: c.data.startswith("confirm_payment_"))
 async def confirm_payment(callback: types.CallbackQuery):
     if callback.from_user.id != ADMIN_ID:
@@ -390,15 +406,12 @@ async def confirm_payment(callback: types.CallbackQuery):
     cursor.execute("UPDATE orders SET status='qabul_qilingan' WHERE id=?", (order_id,))
     conn.commit()
     await send_to_user(user_id, f"✅ #{order_id} buyurtmangiz to‘lovi tasdiqlandi. Admin buyurtmani tayyorlaydi.")
-    
-    # Kanalga xabar (to‘lov tasdiqlandi)
     await send_to_channel(order_id, "paid")
-    
     ready_kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔧 Tayyor", callback_data=f"ready_{order_id}"),
          InlineKeyboardButton(text="🚚 Yetkazildi", callback_data=f"delivered_{order_id}")]
     ])
-    await callback.message.edit_text(f"✅ Buyurtma #{order_id} to‘lovi tasdiqlandi. Endi tayyorlash/yetkazish:", reply_markup=ready_kb)
+    await callback.message.edit_text(f"✅ Buyurtma #{order_id} to‘lovi tasdiqlandi.", reply_markup=ready_kb)
     await callback.answer()
 
 @dp.callback_query(lambda c: c.data.startswith("ready_"))
@@ -414,7 +427,7 @@ async def order_ready(callback: types.CallbackQuery):
         return
     user_id = row[0]
     await send_to_user(user_id, f"🍳 #{order_id} buyurtmangiz tayyorlanmoqda. Tez orada yetkaziladi.")
-    await callback.message.edit_text(f"🟡 Buyurtma #{order_id} tayyor holatiga o‘tkazildi. Yetkazilganda tugmani bosing.")
+    await callback.message.edit_text(f"🟡 Buyurtma #{order_id} tayyor holatiga o‘tkazildi.")
     await callback.answer()
 
 @dp.callback_query(lambda c: c.data.startswith("delivered_"))
@@ -432,10 +445,7 @@ async def order_delivered(callback: types.CallbackQuery):
     cursor.execute("UPDATE orders SET status='yetkazilgan' WHERE id=?", (order_id,))
     conn.commit()
     await send_to_user(user_id, f"✅ Buyurtma #{order_id} yetkazildi. Rahmat!")
-    
-    # Kanalga xabar (yetkazildi)
     await send_to_channel(order_id, "delivered")
-    
     await callback.message.edit_text(f"✅ Buyurtma #{order_id} yetkazilgan deb belgilandi.")
     await callback.answer()
 
@@ -455,7 +465,7 @@ async def reject_payment(callback: types.CallbackQuery):
     await callback.message.edit_text(f"❌ Buyurtma #{order_id} rad etildi.")
     await callback.answer()
 
-# ========== FOYDALANUVCHI: BUYURTMA TARIXI ==========
+# ========== FOYDALANUVCHI BUYURTMA TARIXI ==========
 @dp.message(lambda msg: msg.text == "📜 Mening buyurtmalarim")
 async def my_orders(message: types.Message):
     user_id = message.from_user.id
@@ -473,7 +483,7 @@ async def my_orders(message: types.Message):
 async def contact(message: types.Message):
     await message.answer("📞 +998 90 123 45 67\n📍 Toshkent, Chilonzor")
 
-# ========== ADMIN FUNKSIYALARI (MAHSULOTLAR, STATISTIKA, EKSPORT, REKLAMA, BLOKLASH) ==========
+# ========== ADMIN FUNKSIYALARI (qisqartirilgan, lekin to‘liq) ==========
 @dp.message(lambda msg: msg.text == "📊 Statistika" and msg.from_user.id == ADMIN_ID)
 async def stats(message: types.Message):
     cursor.execute("SELECT COUNT(*) FROM orders")
@@ -498,6 +508,7 @@ async def list_orders_admin(message: types.Message):
         text += f"#{oid} | {uid} | {status}\n{prods}\nJami: {total} so'm\nManzil: {addr}\nVaqt: {dtime}\n{date}\n\n"
     await message.answer(text)
 
+# Mahsulot qo'shish, o'chirish, tahrirlash (oldingi kod bilan bir xil, qisqartirilgan)
 @dp.message(lambda msg: msg.text == "➕ Mahsulot qo'shish" and msg.from_user.id == ADMIN_ID)
 async def add_product_start(message: types.Message, state: FSMContext):
     await message.answer("Nomi:")
