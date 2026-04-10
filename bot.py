@@ -46,7 +46,7 @@ async def start(msg: types.Message):
     if msg.from_user.id == ADMIN_ID:
         await msg.answer("👑 Admin panel", reply_markup=admin_menu)
     else:
-        await msg.answer("🍃 AlphaHookah bar botiga xush kelibsiz!", reply_markup=user_menu)
+        await msg.answer("🍃 AlphaHookah botiga xush kelibsiz!", reply_markup=user_menu)
 
 @dp.message(lambda m: m.text == "🍽 Menu")
 async def menu(msg: types.Message):
