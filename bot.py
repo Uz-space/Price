@@ -25,7 +25,7 @@ bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
 user_menu = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="🍽 Menu"), KeyboardButton(text="🛒 Savatcha")], [KeyboardButton(text="📦 Buyurtma"), KeyboardButton(text="📜 Tarix")]], resize_keyboard=True)
-admin_menu = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="➕ Mahsulot"), KeyboardButton(text="❌ O'chirish")], [KeyboardButton(text="📋 Buyurtmalar"), KeyboardButton(text="📊 Statistika")]], resize_keyboard=True)
+admin_menu = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="➕ Mahsulot"), KeyboardButton(text="❌ O'chirish")], [KeyboardButton(text="✏️ Narx tahrirlash"), KeyboardButton(text="📢 Broadcast")], [KeyboardButton(text="📋 Buyurtmalar"), KeyboardButton(text="📊 Statistika")]], resize_keyboard=True)
 
 class AddProduct(StatesGroup):
     name = State()
@@ -34,6 +34,13 @@ class AddProduct(StatesGroup):
 
 class DeleteProduct(StatesGroup):
     pid = State()
+
+class EditPrice(StatesGroup):
+    pid = State()
+    price = State()
+
+class BroadcastMessage(StatesGroup):
+    msg = State()
 
 class OrderTable(StatesGroup):
     table = State()
@@ -46,7 +53,7 @@ async def start(msg: types.Message):
     if msg.from_user.id == ADMIN_ID:
         await msg.answer("👑 Admin panel", reply_markup=admin_menu)
     else:
-        await msg.answer("🍃 AlphaHookah botiga xush kelibsiz!", reply_markup=user_menu)
+        await msg.answer("🍃 AlphaHookah bar botiga xush kelibsiz!", reply_markup=user_menu)
 
 @dp.message(lambda m: m.text == "🍽 Menu")
 async def menu(msg: types.Message):
@@ -289,6 +296,74 @@ async def delete_pid(msg: types.Message, state: FSMContext):
     await msg.answer("✅ O'chirildi")
     await state.clear()
 
+@dp.message(lambda m: m.text == "✏️ Narx tahrirlash" and m.from_user.id == ADMIN_ID)
+async def edit_price_start(msg: types.Message, state: FSMContext):
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT id, name, price FROM products") as cur:
+            prods = await cur.fetchall()
+    if not prods:
+        await msg.answer("Mahsulot yo'q")
+        return
+    text = "Narxini o'zgartirmoqchi bo'lgan mahsulot ID sini yuboring:\n" + "\n".join([f"ID {p[0]}: {p[1]} - {p[2]:,} so'm" for p in prods])
+    await msg.answer(text)
+    await state.set_state(EditPrice.pid)
+
+@dp.message(EditPrice.pid)
+async def edit_price_get_pid(msg: types.Message, state: FSMContext):
+    if not msg.text.isdigit():
+        await msg.answer("ID son bo'lishi kerak")
+        return
+    pid = int(msg.text)
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT id FROM products WHERE id=?", (pid,)) as cur:
+            if not await cur.fetchone():
+                await msg.answer("Bunday ID li mahsulot topilmadi")
+                return
+    await state.update_data(pid=pid)
+    await msg.answer("Yangi narxni kiriting (faqat son):")
+    await state.set_state(EditPrice.price)
+
+@dp.message(EditPrice.price)
+async def edit_price_save(msg: types.Message, state: FSMContext):
+    if not msg.text.isdigit():
+        await msg.answer("Son yozing")
+        return
+    data = await state.get_data()
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("UPDATE products SET price=? WHERE id=?", (int(msg.text), data['pid']))
+        await db.commit()
+    await msg.answer(f"✅ Mahsulot narxi o'zgartirildi")
+    await state.clear()
+
+@dp.message(lambda m: m.text == "📢 Broadcast" and m.from_user.id == ADMIN_ID)
+async def broadcast_start(msg: types.Message, state: FSMContext):
+    await msg.answer("📢 Yubormoqchi bo'lgan xabaringizni yuboring:")
+    await state.set_state(BroadcastMessage.msg)
+
+@dp.message(BroadcastMessage.msg)
+async def broadcast_send(msg: types.Message, state: FSMContext):
+    text = msg.text
+    await msg.answer("⏳ Xabar yuborilmoqda... Bu bir necha daqiqa olishi mumkin.")
+    
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT user_id FROM users") as cur:
+            users = await cur.fetchall()
+    
+    count = 0
+    failed = 0
+    
+    for (uid,) in users:
+        try:
+            await bot.send_message(uid, f"📢 <b>Reklama</b>\n\n{text}", parse_mode="HTML")
+            count += 1
+            if count % 100 == 0:
+                await asyncio.sleep(0.5)
+        except:
+            failed += 1
+    
+    await msg.answer(f"✅ Xabar yuborildi!\n📨 Yuborilgan: {count}\n❌ Xatolik: {failed}")
+    await state.clear()
+
 @dp.message(lambda m: m.text == "📋 Buyurtmalar" and m.from_user.id == ADMIN_ID)
 async def all_orders(msg: types.Message):
     async with aiosqlite.connect(DB_PATH) as db:
@@ -312,7 +387,9 @@ async def stats(msg: types.Message):
             revenue = (await cur.fetchone())[0] or 0
         async with db.execute("SELECT COUNT(*) FROM products") as cur:
             prods = (await cur.fetchone())[0]
-    await msg.answer(f"📊 STATISTIKA\n━━━━━━━━━━━━━━\n📦 Buyurtma: {total}\n💰 Daromad: {revenue:,} so'm\n🍽 Mahsulot: {prods}")
+        async with db.execute("SELECT COUNT(*) FROM users") as cur:
+            users = (await cur.fetchone())[0]
+    await msg.answer(f"📊 STATISTIKA\n━━━━━━━━━━━━━━\n📦 Buyurtma: {total}\n💰 Daromad: {revenue:,} so'm\n🍽 Mahsulot: {prods}\n👥 Foydalanuvchi: {users}")
 
 async def main():
     await init_db()
