@@ -65,6 +65,9 @@ async def show_products(call: types.CallbackQuery):
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute("SELECT id, name, price FROM products WHERE category=?", (cat,)) as cur:
             prods = await cur.fetchall()
+    if not prods:
+        await call.answer("Bu kategoriyada mahsulot yo'q")
+        return
     text = f"📁 {cat.upper()}\n━━━━━━━━━━━━━━\n"
     for p in prods:
         text += f"🍃 {p[1]} — {p[2]:,} so'm\n"
@@ -124,7 +127,6 @@ async def order_start(call: types.CallbackQuery, state: FSMContext):
 
 @dp.message(OrderTable.table)
 async def order_table(msg: types.Message, state: FSMContext):
-    # Stol raqamini tekshirish
     if not msg.text.isdigit():
         await msg.answer("❌ Iltimos, faqat raqam kiriting (1-100):")
         return
@@ -136,7 +138,6 @@ async def order_table(msg: types.Message, state: FSMContext):
     
     uid = msg.from_user.id
     
-    # Savatchani tekshirish
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute("SELECT p.name, p.price, c.quantity FROM cart c JOIN products p ON c.product_id = p.id WHERE c.user_id=?", (uid,)) as cur:
             items = await cur.fetchall()
