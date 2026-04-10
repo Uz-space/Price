@@ -1,45 +1,53 @@
-import telebot
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+import asyncio
+from aiogram import Bot, Dispatcher, types
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 TOKEN = "8134986426:AAF_Np2hSvspbrBfcsjsr9Szd77yb0WiIBI"
-bot = telebot.TeleBot(TOKEN)
 
-# Emoji ID’lar
-confirm_emoji_id = "5323765959444435759"
-cancel_emoji_id = "5325998693898293667"
+bot = Bot(token=TOKEN)
+dp = Dispatcher()
 
-@bot.message_handler(commands=['start'])
-def start(message):
-    chat_id = message.chat.id
+confirm_emoji = "5323765959444435759"
+cancel_emoji = "5325998693898293667"
 
-    # Avval premium emojili xabar yuboramiz (tugma uchun emas)
-    emoji_text = f"""
-<b>Premium Emoji Test</b>
 
-✅ Tasdiqlash: <tg-emoji emoji-id='{confirm_emoji_id}'>✅</tg-emoji>
-❌ Bekor qilish: <tg-emoji emoji-id='{cancel_emoji_id}'>❌</tg-emoji>
-"""
+@dp.message(commands=["start"])
+async def start(message: types.Message):
 
-    bot.send_message(chat_id, emoji_text, parse_mode="HTML")
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text=f"<tg-emoji emoji-id='{confirm_emoji}'></tg-emoji> Tasdiqlash",
+                callback_data="confirm"
+            ),
+            InlineKeyboardButton(
+                text=f"<tg-emoji emoji-id='{cancel_emoji}'></tg-emoji> Bekor qilish",
+                callback_data="cancel"
+            )
+        ]
+    ])
 
-    # Oddiy matnli tugmalar (HTML ishlatib bo'lmaydi)
-    kb = InlineKeyboardMarkup()
-    kb.add(
-        InlineKeyboardButton("✅ Tasdiqlash", callback_data="confirm"),
-        InlineKeyboardButton("❌ Bekor qilish", callback_data="cancel")
+    await message.answer(
+        "Emoji tugmalar bilan xabar:",
+        reply_markup=kb,
+        parse_mode="HTML"
     )
 
-    bot.send_message(chat_id, "Quyidagi tugmalardan birini bosing:", reply_markup=kb)
 
-# Callback query handler
-@bot.callback_query_handler(func=lambda call: True)
-def callback_inline(call):
+@dp.callback_query()
+async def callback(call: types.CallbackQuery):
+
     if call.data == "confirm":
-        bot.answer_callback_query(call.id, "✅ Tasdiqladingiz!")
-        bot.send_message(call.message.chat.id, "Siz tasdiqladingiz!")
-    elif call.data == "cancel":
-        bot.answer_callback_query(call.id, "❌ Bekor qildingiz!")
-        bot.send_message(call.message.chat.id, "Siz bekor qildingiz!")
+        await call.answer("Tasdiqlandi!")
+        await call.message.answer("Siz tasdiqladingiz!")
 
-print("✅ Bot ishga tushdi!")
-bot.infinity_polling()
+    elif call.data == "cancel":
+        await call.answer("Bekor qilindi!")
+        await call.message.answer("Siz bekor qildingiz!")
+
+
+async def main():
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
