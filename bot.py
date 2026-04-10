@@ -92,7 +92,7 @@ admin_menu = ReplyKeyboardMarkup(
 )
 
 # ========== KANAL XABARI ==========
-async def send_or_update_channel_message(order_id):
+async def update_channel_message(order_id):
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute("""
             SELECT o.user_id, o.products, o.total, o.table_number, o.date, o.status, u.first_name 
@@ -107,21 +107,21 @@ async def send_or_update_channel_message(order_id):
         
         if status == "toʻlov_kutilmoqda":
             title = "🆕 YANGI BUYURTMA"
-            status_icon = "⏳ Toʻlov kutilmoqda"
+            status_text = "⏳ Toʻlov kutilmoqda"
         elif status == "qabul_qilingan":
             title = "💰 TOʻLOV TASDIQLANDI"
-            status_icon = "✅ Tasdiqlangan"
+            status_text = "✅ Tasdiqlangan"
         elif status == "yetkazilgan":
             title = "✅ BUYURTMA YETKAZILDI"
-            status_icon = "🚚 Yetkazildi"
+            status_text = "🚚 Yetkazildi"
         elif status == "bekor_qilingan":
             title = "❌ BUYURTMA BEKOR QILINDI"
-            status_icon = "❌ Bekor qilingan"
+            status_text = "❌ Bekor qilingan"
         else:
             title = "📦 BUYURTMA"
-            status_icon = status
+            status_text = status
         
-        text = f"<b>{title}</b>\n━━━━━━━━━━━━━━━━━━━━\n🆔 #{order_id}\n👤 {user_name}\n🪑 {table}-stol\n📦 {products}\n💰 {total:,} so'm\n━━━━━━━━━━━━━━━━━━━━\n{status_icon}\n📝 {date_f}"
+        text = f"<b>{title}</b>\n━━━━━━━━━━━━━━━━━━━━\n🆔 #{order_id}\n👤 {user_name}\n🪑 {table}-stol\n📦 {products}\n💰 {total:,} so'm\n━━━━━━━━━━━━━━━━━━━━\n{status_text}\n📝 {date_f}"
         
         async with db.execute("SELECT message_id FROM channel_messages WHERE order_id=?", (order_id,)) as cur:
             msg_row = await cur.fetchone()
@@ -133,8 +133,8 @@ async def send_or_update_channel_message(order_id):
                 sent = await bot.send_message(CHANNEL_ID, text, parse_mode="HTML")
                 await db.execute("INSERT INTO channel_messages (order_id, message_id) VALUES (?, ?)", (order_id, sent.message_id))
                 await db.commit()
-        except:
-            pass
+        except Exception as e:
+            print(f"Kanal xatosi: {e}")
 
 # ========== START ==========
 @dp.message(Command("start"))
@@ -197,10 +197,8 @@ async def add_to_cart(callback: types.CallbackQuery):
         await db.commit()
     await callback.answer("✅ Savatchaga qo'shildi!", show_alert=True)
 
-# ========== SAVATCHA (TUZATILGAN) ==========
-@dp.message(lambda msg: msg.text == "🛒 Savatcha")
-async def show_cart(message: types.Message):
-    user_id = message.from_user.id
+# ========== SAVATCHA (TO'LIQ TUZATILGAN) ==========
+async def get_cart_html(user_id):
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute("""
             SELECT p.id, p.name, p.price, c.quantity 
@@ -210,43 +208,53 @@ async def show_cart(message: types.Message):
             items = await cur.fetchall()
     
     if not items:
-        await message.answer("🛒 Savatcha bo'sh.")
-        return
+        return None, None
     
     total = 0
     text = "🛍 <b>Savatchangiz</b>\n━━━━━━━━━━━━━━━━━━━━\n"
-    kb = InlineKeyboardMarkup(inline_keyboard=[])
-    
     for pid, name, price, qty in items:
         subtotal = price * qty
         total += subtotal
         text += f"• {name} x{qty} = {subtotal:,} so'm\n"
-        kb.inline_keyboard.append([
-            InlineKeyboardButton(text="➖", callback_data=f"cart_dec_{pid}"),
-            InlineKeyboardButton(text=f"{qty}", callback_data="ignore"),
-            InlineKeyboardButton(text="➕", callback_data=f"cart_inc_{pid}"),
-            InlineKeyboardButton(text="🗑", callback_data=f"cart_rem_{pid}")
-        ])
     
     text += f"━━━━━━━━━━━━━━━━━━━━\n💰 <b>Jami: {total:,} so'm</b>"
-    kb.inline_keyboard.append([InlineKeyboardButton(text="🚀 Buyurtma berish", callback_data="order_now")])
-    kb.inline_keyboard.append([InlineKeyboardButton(text="🗑 Savatni tozalash", callback_data="cart_clear")])
+    return text, items
+
+@dp.message(lambda msg: msg.text == "🛒 Savatcha")
+async def show_cart(message: types.Message):
+    user_id = message.from_user.id
+    text, items = await get_cart_html(user_id)
+    
+    if not items:
+        await message.answer("🛒 Savatcha bo'sh.")
+        return
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[])
+    for pid, name, price, qty in items:
+        kb.inline_keyboard.append([
+            InlineKeyboardButton(text="➖", callback_data=f"dec_{pid}"),
+            InlineKeyboardButton(text=f"{qty}", callback_data="noop"),
+            InlineKeyboardButton(text="➕", callback_data=f"inc_{pid}"),
+            InlineKeyboardButton(text="🗑", callback_data=f"del_{pid}")
+        ])
+    kb.inline_keyboard.append([InlineKeyboardButton(text="🚀 Buyurtma berish", callback_data="order")])
+    kb.inline_keyboard.append([InlineKeyboardButton(text="🗑 Savatni tozalash", callback_data="clear")])
     
     await message.answer(text, parse_mode="HTML", reply_markup=kb)
 
-@dp.callback_query(lambda c: c.data.startswith("cart_inc_"))
-async def inc_qty(callback: types.CallbackQuery):
-    pid = int(callback.data.split("_")[2])
+@dp.callback_query(lambda c: c.data.startswith("inc_"))
+async def inc_cart(callback: types.CallbackQuery):
+    pid = int(callback.data.split("_")[1])
     user_id = callback.from_user.id
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("UPDATE cart SET quantity = quantity + 1 WHERE user_id=? AND product_id=?", (user_id, pid))
         await db.commit()
-    await show_cart(callback.message)
+    await refresh_cart_message(callback)
     await callback.answer()
 
-@dp.callback_query(lambda c: c.data.startswith("cart_dec_"))
-async def dec_qty(callback: types.CallbackQuery):
-    pid = int(callback.data.split("_")[2])
+@dp.callback_query(lambda c: c.data.startswith("dec_"))
+async def dec_cart(callback: types.CallbackQuery):
+    pid = int(callback.data.split("_")[1])
     user_id = callback.from_user.id
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute("SELECT quantity FROM cart WHERE user_id=? AND product_id=?", (user_id, pid)) as cur:
@@ -256,29 +264,51 @@ async def dec_qty(callback: types.CallbackQuery):
         else:
             await db.execute("DELETE FROM cart WHERE user_id=? AND product_id=?", (user_id, pid))
         await db.commit()
-    await show_cart(callback.message)
+    await refresh_cart_message(callback)
     await callback.answer()
 
-@dp.callback_query(lambda c: c.data.startswith("cart_rem_"))
-async def rem_item(callback: types.CallbackQuery):
-    pid = int(callback.data.split("_")[2])
+@dp.callback_query(lambda c: c.data.startswith("del_"))
+async def del_cart_item(callback: types.CallbackQuery):
+    pid = int(callback.data.split("_")[1])
     user_id = callback.from_user.id
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("DELETE FROM cart WHERE user_id=? AND product_id=?", (user_id, pid))
         await db.commit()
-    await show_cart(callback.message)
+    await refresh_cart_message(callback)
     await callback.answer()
 
-@dp.callback_query(lambda c: c.data == "cart_clear")
+@dp.callback_query(lambda c: c.data == "clear")
 async def clear_cart(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
     async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("DELETE FROM cart WHERE user_id=?", (callback.from_user.id,))
+        await db.execute("DELETE FROM cart WHERE user_id=?", (user_id,))
         await db.commit()
     await callback.answer("🗑 Savatcha tozalandi!", show_alert=True)
-    await show_cart(callback.message)
+    await refresh_cart_message(callback)
+
+async def refresh_cart_message(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    text, items = await get_cart_html(user_id)
+    
+    if not items:
+        await callback.message.edit_text("🛒 Savatcha bo'sh.")
+        return
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[])
+    for pid, name, price, qty in items:
+        kb.inline_keyboard.append([
+            InlineKeyboardButton(text="➖", callback_data=f"dec_{pid}"),
+            InlineKeyboardButton(text=f"{qty}", callback_data="noop"),
+            InlineKeyboardButton(text="➕", callback_data=f"inc_{pid}"),
+            InlineKeyboardButton(text="🗑", callback_data=f"del_{pid}")
+        ])
+    kb.inline_keyboard.append([InlineKeyboardButton(text="🚀 Buyurtma berish", callback_data="order")])
+    kb.inline_keyboard.append([InlineKeyboardButton(text="🗑 Savatni tozalash", callback_data="clear")])
+    
+    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
 
 # ========== BUYURTMA ==========
-@dp.callback_query(lambda c: c.data == "order_now")
+@dp.callback_query(lambda c: c.data == "order")
 async def order_start(callback: types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     async with aiosqlite.connect(DB_PATH) as db:
@@ -323,7 +353,7 @@ async def get_table_number(message: types.Message, state: FSMContext):
         await db.execute("DELETE FROM cart WHERE user_id=?", (user_id,))
         await db.commit()
     
-    await send_or_update_channel_message(order_id)
+    await update_channel_message(order_id)
     
     await bot.send_message(ADMIN_ID, f"🆕 Yangi buyurtma #{order_id}\n👤 ID: {user_id}\n🪑 Stol: {table_number}\n📦 {products_text}\n💰 {total:,} so'm")
     
@@ -363,6 +393,7 @@ async def user_paid(callback: types.CallbackQuery):
     await callback.message.answer("✅ To‘lov ma'lumotingiz adminga yuborildi.")
     await callback.answer()
 
+# ========== ADMIN ==========
 @dp.callback_query(lambda c: c.data.startswith("confirm_"))
 async def confirm_payment(callback: types.CallbackQuery):
     if callback.from_user.id != ADMIN_ID:
@@ -380,7 +411,7 @@ async def confirm_payment(callback: types.CallbackQuery):
         await db.execute("UPDATE orders SET status='qabul_qilingan' WHERE id=?", (order_id,))
         await db.commit()
     
-    await send_or_update_channel_message(order_id)
+    await update_channel_message(order_id)
     await bot.send_message(user_id, f"✅ #{order_id} buyurtmangiz to‘lovi tasdiqlandi.")
     
     deliver_kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -402,7 +433,7 @@ async def reject_payment(callback: types.CallbackQuery):
         if row:
             await db.execute("UPDATE orders SET status='bekor_qilingan' WHERE id=?", (order_id,))
             await db.commit()
-            await send_or_update_channel_message(order_id)
+            await update_channel_message(order_id)
             await bot.send_message(row[0], f"❌ #{order_id} buyurtmangiz to‘lovi rad etildi.")
     
     await callback.message.edit_text(f"❌ Buyurtma #{order_id} rad etildi.")
@@ -425,7 +456,7 @@ async def deliver_order(callback: types.CallbackQuery):
         await db.execute("UPDATE orders SET status='yetkazilgan' WHERE id=?", (order_id,))
         await db.commit()
     
-    await send_or_update_channel_message(order_id)
+    await update_channel_message(order_id)
     await bot.send_message(user_id, f"✅ #{order_id} buyurtmangiz yetkazildi. Rahmat!")
     await callback.message.edit_text(f"✅ Buyurtma #{order_id} yetkazildi.")
     await callback.answer()
@@ -447,7 +478,7 @@ async def my_orders(message: types.Message):
         text += f"\n#{oid} | {status_emoji.get(status, '📦')} {status}\n🪑 {table}-stol | {date_f}\n{prods}\n💰 {total:,} so'm\n"
     await message.answer(text, parse_mode="HTML")
 
-# ========== ADMIN ==========
+# ========== ADMIN MAHSULOT BOSHQARISH ==========
 @dp.message(lambda msg: msg.text == "➕ Mahsulot qo'shish" and msg.from_user.id == ADMIN_ID)
 async def add_start(message: types.Message, state: FSMContext):
     await message.answer("📦 Mahsulot nomi:")
@@ -537,8 +568,8 @@ async def stats(message: types.Message):
 async def quick_order(message: types.Message):
     await show_cart(message)
 
-@dp.callback_query(lambda c: c.data == "ignore")
-async def ignore(callback: types.CallbackQuery):
+@dp.callback_query(lambda c: c.data == "noop")
+async def noop(callback: types.CallbackQuery):
     await callback.answer()
 
 # ========== ISHGA TUSHIRISH ==========
