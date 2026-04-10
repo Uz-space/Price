@@ -17,14 +17,14 @@ async def init_db():
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("CREATE TABLE IF NOT EXISTS products (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, price INTEGER, category TEXT)")
         await db.execute("CREATE TABLE IF NOT EXISTS cart (user_id INTEGER, product_id INTEGER, quantity INTEGER, PRIMARY KEY(user_id, product_id))")
-        await db.execute("CREATE TABLE IF NOT EXISTS orders (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, products TEXT, total INTEGER, status TEXT, table_number TEXT, date TEXT)")
+        await db.execute("CREATE TABLE IF NOT EXISTS orders (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, products TEXT, total INTEGER, status TEXT, table_number INTEGER, date TEXT)")
         await db.execute("CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, name TEXT)")
         await db.commit()
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-user_menu = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="🍽 Menyu"), KeyboardButton(text="🛒 Savatcha")], [KeyboardButton(text="📦 Buyurtma"), KeyboardButton(text="📜 Tarix")]], resize_keyboard=True)
+user_menu = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="🍽 Menu"), KeyboardButton(text="🛒 Savatcha")], [KeyboardButton(text="📦 Buyurtma"), KeyboardButton(text="📜 Tarix")]], resize_keyboard=True)
 admin_menu = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="➕ Mahsulot"), KeyboardButton(text="❌ O'chirish")], [KeyboardButton(text="📋 Buyurtmalar"), KeyboardButton(text="📊 Statistika")]], resize_keyboard=True)
 
 class AddProduct(StatesGroup):
@@ -48,7 +48,7 @@ async def start(msg: types.Message):
     else:
         await msg.answer("🍃 AlphaHookah bar botiga xush kelibsiz!", reply_markup=user_menu)
 
-@dp.message(lambda m: m.text == "🍽 Menyu")
+@dp.message(lambda m: m.text == "🍽 Menu")
 async def menu(msg: types.Message):
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute("SELECT DISTINCT category FROM products") as cur:
@@ -118,32 +118,47 @@ async def clear(call: types.CallbackQuery):
 
 @dp.callback_query(lambda c: c.data == "order")
 async def order_start(call: types.CallbackQuery, state: FSMContext):
-    await call.message.answer("🪑 Stol raqamingizni yozing:")
+    await call.message.answer("🪑 Stol raqamini kiriting (1-100):")
     await state.set_state(OrderTable.table)
     await call.answer()
 
 @dp.message(OrderTable.table)
 async def order_table(msg: types.Message, state: FSMContext):
-    table = msg.text.strip()
+    # Stol raqamini tekshirish
+    if not msg.text.isdigit():
+        await msg.answer("❌ Iltimos, faqat raqam kiriting (1-100):")
+        return
+    
+    table = int(msg.text)
+    if table < 1 or table > 100:
+        await msg.answer("❌ Stol raqami 1 dan 100 gacha bo'lishi kerak. Qayta kiriting:")
+        return
+    
     uid = msg.from_user.id
+    
+    # Savatchani tekshirish
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute("SELECT p.name, p.price, c.quantity FROM cart c JOIN products p ON c.product_id = p.id WHERE c.user_id=?", (uid,)) as cur:
             items = await cur.fetchall()
+    
     if not items:
-        await msg.answer("Savatcha bo'sh")
+        await msg.answer("❌ Savatcha bo'sh. Iltimos, avval mahsulot qo'shing!")
         await state.clear()
         return
+    
     total = sum(i[1] * i[2] for i in items)
     prods = ", ".join([f"{i[0]} x{i[2]}" for i in items])
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
     async with aiosqlite.connect(DB_PATH) as db:
         cur = await db.execute("INSERT INTO orders (user_id, products, total, status, table_number, date) VALUES (?, ?, ?, 'kutilmoqda', ?, ?)", (uid, prods, total, table, now))
         await db.commit()
         oid = cur.lastrowid
         await db.execute("DELETE FROM cart WHERE user_id=?", (uid,))
         await db.commit()
+    
     await bot.send_message(ADMIN_ID, f"🆕 #{oid}\n👤 {msg.from_user.first_name}\n🪑 {table}\n📦 {prods}\n💰 {total:,} so'm")
-    await msg.answer(f"✅ #{oid} qabul qilindi!\n🪑 {table}\n💰 {total:,} so'm\n\n💳 8600 1234 5678 9012\n\nTo'lov qilgach bosing:", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="✅ To'lov qildim", callback_data=f"paid_{oid}")]]))
+    await msg.answer(f"✅ #{oid} qabul qilindi!\n🪑 Stol: {table}\n💰 Jami: {total:,} so'm\n\n💳 To'lov: 8600 1234 5678 9012\n\nTo'lov qilgach bosing:", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="✅ To'lov qildim", callback_data=f"paid_{oid}")]]))
     await state.clear()
 
 @dp.callback_query(lambda c: c.data.startswith("paid_"))
@@ -221,7 +236,6 @@ async def history(msg: types.Message):
         text += f"#{o[0]} {emoji} {o[3]} | {d}\n🪑 {o[4]}\n{o[1]}\n💰 {o[2]:,} so'm\n━━━━━━━━━━━━━━\n"
     await msg.answer(text)
 
-# ========== ADMIN (MINIMAL MATNLAR) ==========
 @dp.message(lambda m: m.text == "➕ Mahsulot" and m.from_user.id == ADMIN_ID)
 async def add_start(msg: types.Message, state: FSMContext):
     await msg.answer("Nomi:")
