@@ -1,83 +1,55 @@
 import telebot
 import requests
-import time
-from datetime import datetime
 
-TOKEN = "8134986426:AAF_Np2hSvspbrBfcsjsr9Szd77yb0WiIBI"  # O'zgartiring
+TOKEN = "8134986426:AAF_Np2hSvspbrBfcsjsr9Szd77yb0WiIBI"  # O'z tokeningizni yozing
 bot = telebot.TeleBot(TOKEN)
 
-interval = 15  # sekund
-
-coins = {
-    "BTC":"BTCUSDT",
-    "ETH":"ETHUSDT",
-    "BNB":"BNBUSDT",
-    "SOL":"SOLUSDT",
-    "LTC":"LTCUSDT",
-    "TON":"TONUSDT",
-    "TRX":"TRXUSDT",
-    "DOGE":"DOGEUSDT"
+# Premium emoji ID lar (sizdagilar)
+emoji_id_test = {
+    "BTC": "5323765959444435759",
+    "ETH": "5325998693898293667"
 }
 
-# Custom emoji ID (Premium foydalanuvchi bo'lsa ko'rinadi)
-emoji_id = {
-    "BTC":"5215277894456089919",
-    "ETH":"5215469686220688535",
-    "BNB":"5215501052366852398",
-    "SOL":"5215644439850028163",
-    "LTC":"5215397251597243962",
-    "TON":"5215541953340410399",
-    "TRX":"5215676493190960888",
-    "DOGE":"5215580724010193095"
+# Oddiy emojilar
+normal_emoji = {
+    "BTC": "🟠",
+    "ETH": "💙"
 }
 
-user_messages = {}  # chat_id: message_id
-
-def get_prices():
+@bot.message_handler(commands=['test'])
+def test(message):
+    chat_id = message.chat.id
+    
+    # 1-test: Oddiy matn
+    bot.send_message(chat_id, "1-test: Oddiy matn ishlayapti ✅")
+    
+    # 2-test: Oddiy emoji
+    bot.send_message(chat_id, f"2-test: Oddiy emoji {normal_emoji['BTC']} BTC")
+    
+    # 3-test: Premium emoji (ID bilan)
     try:
-        r = requests.get("https://api.binance.com/api/v3/ticker/price", timeout=5)
+        premium_msg = f"3-test: Premium emoji <tg-emoji emoji-id='{emoji_id_test['BTC']}'>🙂</tg-emoji> BTC"
+        bot.send_message(chat_id, premium_msg, parse_mode="HTML")
+    except Exception as e:
+        bot.send_message(chat_id, f"3-test: Premium emoji xato - {e}")
+    
+    # 4-test: Binance API
+    try:
+        r = requests.get("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT", timeout=5)
         data = r.json()
-        prices = {}
-        for item in data:
-            for coin,symbol in coins.items():
-                if item["symbol"] == symbol:
-                    prices[coin] = float(item["price"])
-        return prices
-    except:
-        return {}
+        price = data['price']
+        bot.send_message(chat_id, f"4-test: BTC narxi = ${price} ✅")
+    except Exception as e:
+        bot.send_message(chat_id, f"4-test: API xato - {e}")
+    
+    # 5-test: Sizning ID laringiz bilan
+    for coin, emoji_id in emoji_id_test.items():
+        test_msg = f"5-test: {coin} emoji ID: {emoji_id}\n<tg-emoji emoji-id='{emoji_id}'>🔵</tg-emoji> Bu emoji ko'rinadimi?"
+        bot.send_message(chat_id, test_msg, parse_mode="HTML")
 
-def build_message(prices):
-    t = datetime.now().strftime("%H:%M:%S")
-    text = "<b>💰 AlphaCryptoPrice</b>\n\n"
-    for coin in coins:
-        price = prices.get(coin,0)
-        icon = f"<tg-emoji emoji-id='{emoji_id[coin]}'>🙂</tg-emoji>"
-        text += f"{icon} {coin} | ${price:,.2f} | {t}\n"
-    text += f"\n🔄 Auto Update: {interval} sec"
-    return text
-
-# /start komandasi
 @bot.message_handler(commands=['start'])
 def start(message):
-    chat_id = message.chat.id
-    prices = get_prices()
-    msg = build_message(prices)
-    sent = bot.send_message(chat_id, msg, parse_mode="HTML")
-    user_messages[chat_id] = sent.message_id
+    bot.send_message(message.chat.id, "👋 /test yozing - hamma narsani tekshiramiz")
 
-    # Auto update
-    def updater():
-        while True:
-            prices = get_prices()
-            msg = build_message(prices)
-            try:
-                bot.edit_message_text(msg, chat_id, user_messages[chat_id], parse_mode="HTML")
-            except:
-                pass
-            time.sleep(interval)
-    
-    import threading
-    threading.Thread(target=updater).start()
-
-# Botni ishga tushurish
+print("Test bot ishga tushdi...")
 bot.infinity_polling()
