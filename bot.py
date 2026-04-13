@@ -4,7 +4,7 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message
 from aiogram.enums import ParseMode
 
-TOKEN = "YOUR_BOT_TOKEN"
+TOKEN = "8788903625:AAFJynv6xVRU3nh4mSuqmHcIY2ZAwtkNUTk"
 
 bot = Bot(token=TOKEN, parse_mode=ParseMode.HTML)
 dp = Dispatcher()
