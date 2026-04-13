@@ -16,6 +16,8 @@ Pack link formati:
     https://t.me/addemoji/PackNomi
 """
 
+from __future__ import annotations
+
 import io
 import zipfile
 import logging
