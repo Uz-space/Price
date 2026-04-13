@@ -1,87 +1,63 @@
-import telebot
+import asyncio
 import os
+import zipfile
+from telethon import TelegramClient
+from telethon.tl.functions.messages import GetStickerSetRequest
+from telethon.tl.types import InputStickerSetShortName
 
-TOKEN = "8788903625:AAFJynv6xVRU3nh4mSuqmHcIY2ZAwtkNUTk"
-bot = telebot.TeleBot(TOKEN)
+api_id = 36092552          # <- o'zgartir
+api_hash = "9d18a707a797f12f1c31587d3cc6e0d7"
 
-
-def extract_pack(text: str):
-    text = text.strip()
-    if "t.me/addstickers/" not in text:
-        return None
-
-    pack = text.split("t.me/addstickers/")[-1]
-    pack = pack.split("?")[0]
-    return pack.strip()
+client = TelegramClient("session", api_id, api_hash)
 
 
-def pack_name(user_id):
-    return f"clone_{user_id}_bot"
+def extract_pack(link: str):
+    return link.split("/")[-1].strip()
 
 
-@bot.message_handler(func=lambda m: True)
-def clone(message):
-    text = message.text
-
-    pack = extract_pack(text)
-
-    if not pack:
-        bot.reply_to(message, "❌ Sticker pack link yubor:\nhttps://t.me/addstickers/PackName")
-        return
-
-    user_id = message.from_user.id
-
-    try:
-        stickerset = bot.get_sticker_set(pack)
-    except:
-        bot.reply_to(message, "❌ Pack topilmadi")
-        return
-
-    new_pack = pack_name(user_id)
-
-    created = False
-
-    bot.send_message(message.chat.id, "⏳ Clone boshlandi...")
-
-    for i, sticker in enumerate(stickerset.stickers):
-        file_info = bot.get_file(sticker.file_id)
-        file_bytes = bot.download_file(file_info.file_path)
-
-        ext = file_info.file_path.split(".")[-1]
-        filename = f"temp_{i}.{ext}"
-
-        with open(filename, "wb") as f:
-            f.write(file_bytes)
-
-        emoji = sticker.emoji or "😀"
-
-        try:
-            with open(filename, "rb") as f:
-                if not created:
-                    bot.create_new_sticker_set(
-                        user_id,
-                        new_pack,
-                        f"Clone Pack {user_id}",
-                        stickers=[telebot.types.InputSticker(f, emoji)]
-                    )
-                    created = True
-                else:
-                    bot.add_sticker_to_set(
-                        user_id,
-                        new_pack,
-                        telebot.types.InputSticker(f, emoji)
-                    )
-        except Exception as e:
-            bot.send_message(message.chat.id, f"❌ Error: {e}")
-            os.remove(filename)
-            return
-
-        os.remove(filename)
-
-    bot.send_message(
-        message.chat.id,
-        f"✅ Done!\nhttps://t.me/addstickers/{new_pack}"
-    )
+async def download_sticker_set(pack_name):
+    result = await client(GetStickerSetRequest(
+        stickerset=InputStickerSetShortName(short_name=pack_name),
+        hash=0
+    ))
+    return result.documents
 
 
-bot.infinity_polling()
+async def export_pack(link):
+    pack = extract_pack(link)
+
+    os.makedirs("output", exist_ok=True)
+
+    docs = await download_sticker_set(pack)
+
+    files = []
+
+    for i, doc in enumerate(docs):
+        path = await client.download_media(doc, file=f"output/{i}")
+
+        emoji = ""
+        if hasattr(doc, "attributes"):
+            for attr in doc.attributes:
+                if hasattr(attr, "alt"):
+                    emoji = attr.alt
+
+        new_name = f"{i}_{emoji}.webp"
+        os.rename(path, f"output/{new_name}")
+        files.append(f"output/{new_name}")
+
+    zip_name = f"{pack}.zip"
+
+    with zipfile.ZipFile(zip_name, "w") as z:
+        for f in files:
+            z.write(f)
+
+    print(f"✅ Done: {zip_name}")
+
+
+async def main():
+    await client.start()
+    link = input("Pack link: ")
+    await export_pack(link)
+
+
+client.loop.run_until_complete(main())
