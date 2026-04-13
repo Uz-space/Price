@@ -1,1 +1,1 @@
-websockets
+aiogram==3.4.1
