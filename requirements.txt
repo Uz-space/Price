@@ -1,2 +1,2 @@
-telethon==1.36.0
-pyTelegramBotAPI
+python-telegram-bot==21.6
+requests==2.32.3
