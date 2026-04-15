@@ -24,7 +24,7 @@ logger = logging.getLogger(name)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 
-── SVG → Lottie JSON ──────────────────────────────────────────────────────────
+SVG → Lottie JSON
 
 def hex_to_rgb(hex_color: str) -> list[float]:
 hex_color = hex_color.strip().lstrip("#")
