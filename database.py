@@ -1,7 +1,7 @@
 import sqlite3
 from datetime import datetime
 from typing import Optional, List, Dict, Any
-
+from decimal import Decimal, ROUND_HALF_UP
 
 class Database:
     def __init__(self, db_path: str = "bot.db"):
@@ -49,6 +49,14 @@ class Database:
             """)
             print("✅ Ma'lumotlar bazasi tayyor!")
 
+    def _to_decimal(self, value: float) -> Decimal:
+        """Float ni Decimal ga o'tkazish (aniqlik uchun)"""
+        return Decimal(str(value))
+
+    def _to_float(self, value: Decimal) -> float:
+        """Decimal ni float ga qaytarish"""
+        return float(value)
+
     # ==================== USERS ====================
     def add_user(self, user_id: int, username: str, full_name: str, referrer_id: Optional[int] = None):
         with self.get_conn() as conn:
@@ -72,6 +80,7 @@ class Database:
             return [dict(r) for r in rows]
 
     def add_balance(self, user_id: int, amount: float):
+        """Balansga pul qo'shish (payout uchun)"""
         with self.get_conn() as conn:
             conn.execute(
                 "UPDATE users SET balance = balance + ? WHERE user_id = ?",
@@ -79,6 +88,7 @@ class Database:
             )
 
     def deduct_balance(self, user_id: int, amount: float):
+        """Balansdan pul yechish"""
         with self.get_conn() as conn:
             conn.execute("""
                 UPDATE users
@@ -104,34 +114,45 @@ class Database:
             return dict(row) if row else None
 
     def approve_deposit(self, dep_id: int):
+        """Depozitni tasdiqlash va referal bonus hisoblash"""
         with self.get_conn() as conn:
             now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            
+            # Depozitni tasdiqlash
             conn.execute("""
                 UPDATE deposits
                 SET status = 'approved', approved_at = ?
                 WHERE id = ?
             """, (now, dep_id))
 
+            # Depozit ma'lumotlarini olish
             dep = dict(conn.execute(
                 "SELECT * FROM deposits WHERE id = ?", (dep_id,)
             ).fetchone())
 
+            # Userning total_deposited ni yangilash
             conn.execute("""
                 UPDATE users
                 SET total_deposited = total_deposited + ?
                 WHERE user_id = ?
             """, (dep['amount'], dep['user_id']))
 
-            # Referal bonus 5%
+            # Referal bonus 5% (faqat tasdiqlanganda)
             user_row = conn.execute(
                 "SELECT referrer_id FROM users WHERE user_id = ?", (dep['user_id'],)
             ).fetchone()
+            
             if user_row and user_row['referrer_id']:
-                bonus = dep['amount'] * 0.05
-                conn.execute(
-                    "UPDATE users SET balance = balance + ? WHERE user_id = ?",
-                    (bonus, user_row['referrer_id'])
-                )
+                # Decimal bilan hisoblash (aniqlik uchun)
+                amount_dec = self._to_decimal(dep['amount'])
+                bonus_dec = (amount_dec * Decimal('0.05')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                bonus = self._to_float(bonus_dec)
+                
+                if bonus > 0:
+                    conn.execute(
+                        "UPDATE users SET balance = balance + ? WHERE user_id = ?",
+                        (bonus, user_row['referrer_id'])
+                    )
 
     def reject_deposit(self, dep_id: int):
         with self.get_conn() as conn:
@@ -140,6 +161,7 @@ class Database:
             )
 
     def mark_paid(self, dep_id: int):
+        """Depozit bo'yicha to'lov amalga oshirilganini belgilash"""
         now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         with self.get_conn() as conn:
             conn.execute("""
@@ -149,6 +171,7 @@ class Database:
             """, (now, dep_id))
 
     def get_active_deposits(self, user_id: int) -> List[Dict]:
+        """Aktiv (tasdiqlangan ammo to'lanmagan) depozitlar"""
         with self.get_conn() as conn:
             rows = conn.execute("""
                 SELECT * FROM deposits
@@ -164,6 +187,7 @@ class Database:
             return result
 
     def get_pending_deposits(self) -> List[Dict]:
+        """Kutilayotgan depozitlar"""
         with self.get_conn() as conn:
             rows = conn.execute("""
                 SELECT * FROM deposits
@@ -173,6 +197,7 @@ class Database:
             return [dict(r) for r in rows]
 
     def get_user_history(self, user_id: int, limit: int = 10) -> List[Dict]:
+        """Foydalanuvchi tranzaksiya tarixi"""
         with self.get_conn() as conn:
             rows = conn.execute("""
                 SELECT * FROM deposits
@@ -190,6 +215,7 @@ class Database:
 
     # ==================== WITHDRAWALS ====================
     def create_withdrawal(self, user_id: int, amount: float, address: str):
+        """Yechish so'rovini yaratish"""
         with self.get_conn() as conn:
             conn.execute("""
                 INSERT INTO withdrawals (user_id, amount, address)
@@ -198,12 +224,15 @@ class Database:
 
     # ==================== REFERRAL ====================
     def get_referral_count(self, user_id: int) -> int:
+        """Referal sonini olish"""
         with self.get_conn() as conn:
-            return conn.execute(
+            result = conn.execute(
                 "SELECT COUNT(*) FROM users WHERE referrer_id = ?", (user_id,)
-            ).fetchone()[0]
+            ).fetchone()
+            return result[0] if result else 0
 
     def get_referral_earnings(self, user_id: int) -> float:
+        """Referal bonuslardan jami daromad"""
         with self.get_conn() as conn:
             row = conn.execute("""
                 SELECT COALESCE(SUM(d.amount * 0.05), 0) as earnings
@@ -212,31 +241,49 @@ class Database:
                 WHERE u.referrer_id = ?
                   AND d.status IN ('approved', 'paid')
             """, (user_id,)).fetchone()
-            return row[0] if row else 0.0
+            # 2 xonali aniqlikda qaytarish
+            if row and row[0]:
+                return round(row[0], 2)
+            return 0.0
 
     # ==================== STATS ====================
     def get_stats(self) -> Dict[str, Any]:
+        """Statistika ma'lumotlari (1.2x tizimga mos)"""
         with self.get_conn() as conn:
+            # Jami foydalanuvchilar
             users = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+            
+            # Jami depozitlar (tasdiqlangan va to'langan)
             total_dep = conn.execute("""
                 SELECT COALESCE(SUM(amount), 0)
                 FROM deposits WHERE status IN ('approved', 'paid')
             """).fetchone()[0]
+            
+            # To'langan depozitlar summasi
             total_paid = conn.execute("""
                 SELECT COALESCE(SUM(amount), 0)
                 FROM deposits WHERE status = 'paid'
             """).fetchone()[0]
+            
+            # 1.2x tizim bo'yicha jami to'lovlar
+            # (Har bir to'langan depozit uchun 1.2 barobar)
+            total_payouts = total_paid * Decimal('1.2')
+            
+            # Kutilayotgan depozitlar soni
             pending = conn.execute(
                 "SELECT COUNT(*) FROM deposits WHERE status = 'pending'"
             ).fetchone()[0]
+            
+            # Aktiv depozitlar soni (tasdiqlangan ammo to'lanmagan)
             approved = conn.execute(
                 "SELECT COUNT(*) FROM deposits WHERE status = 'approved'"
             ).fetchone()[0]
 
+            # Float ga o'tkazish va 2 xonali aniqlik
             return {
                 "users": users,
-                "total_deposits": total_dep,
-                "total_payouts": total_paid * 2,
+                "total_deposits": round(float(total_dep), 2),
+                "total_payouts": round(float(total_payouts), 2),
                 "pending": pending,
                 "approved": approved
-            }
+                }
