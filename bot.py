@@ -1,6 +1,7 @@
 import logging
 import asyncio
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
@@ -13,7 +14,10 @@ from database import Database
 BOT_TOKEN = "8776678535:AAHMhBYxqHDwJBhnHuJ4v_hgsGRUA9T59EA"          # @BotFather dan oling
 ADMIN_IDS = [7399101034]               # O'zingizning Telegram ID (@userinfobot)
 WALLET_ADDRESS = "TQ4juFaqcHfhKR5vLSfFUjiyyqvsSCscP6"   # TRX TRC20 manzilingiz
-MIN_DEPOSIT = 10 # Minimal depozit (TRX)
+MIN_DEPOSIT = 10                      # Minimal depozit (TRX)
+
+# Vaqt zonasi (Toshkent UTC+5)
+TZ = ZoneInfo("Asia/Tashkent")
 
 # ===================== SETUP =====================
 logging.basicConfig(level=logging.INFO)
@@ -65,7 +69,7 @@ async def cmd_start(message: types.Message):
 
     await message.answer(
         f"👋 Xush kelibsiz, *{full_name}*!\n\n"
-        f"🤖 *1.2x Crypto Bot*ga xush kelibsiz!\n\n"
+        f"🤖 *1.2X Crypto Bot*ga xush kelibsiz!\n\n"
         f"💡 Qanday ishlaydi:\n"
         f"• Istalgan miqdorda pul kiriting\n"
         f"• 12 soat kuting\n"
@@ -86,9 +90,14 @@ async def show_balance(message: types.Message):
 
     active = db.get_active_deposits(message.from_user.id)
     active_text = ""
+    now = datetime.now(TZ)
     for dep in active:
-        finish = dep['approved_at'] + timedelta(hours=12)
-        remaining = finish - datetime.now()
+        # dep['approved_at'] - string, masalan '2025-04-15 14:30:00'
+        approved_at = datetime.strptime(dep['approved_at'], '%Y-%m-%d %H:%M:%S')
+        # approved_at naive, uni Toshkent vaqti deb belgilaymiz
+        approved_at = approved_at.replace(tzinfo=TZ)
+        finish = approved_at + timedelta(hours=12)
+        remaining = finish - now
         if remaining.total_seconds() > 0:
             hours = int(remaining.total_seconds() // 3600)
             minutes = int((remaining.total_seconds() % 3600) // 60)
@@ -163,7 +172,7 @@ async def deposit_txid(message: types.Message, state: FSMContext):
                 f"🆔 ID: `{user_id}`\n"
                 f"💰 Miqdor: *{amount:.2f} TRX*\n"
                 f"🔗 TXID: `{txid}`\n"
-                f"🕐 Vaqt: {datetime.now().strftime('%d.%m.%Y %H:%M')}",
+                f"🕐 Vaqt: {datetime.now(TZ).strftime('%d.%m.%Y %H:%M')}",
                 parse_mode="Markdown",
                 reply_markup=kb
             )
@@ -200,7 +209,7 @@ async def approve_deposit(callback: types.CallbackQuery):
 
     db.approve_deposit(dep_id)
 
-    finish_time = datetime.now() + timedelta(hours=12)
+    finish_time = datetime.now(TZ) + timedelta(hours=12)
     try:
         await bot.send_message(
             deposit['user_id'],
@@ -313,7 +322,9 @@ async def show_history(message: types.Message):
     status_map = {"pending": "⏳", "approved": "✅", "paid": "💰", "rejected": "❌"}
     for h in history:
         emoji = status_map.get(h['status'], "•")
-        date_str = h['created_at'].strftime('%d.%m %H:%M')
+        # created_at datetime obyekti (naive), uni Toshkent vaqti deb belgilaymiz
+        dt = h['created_at'].replace(tzinfo=TZ)
+        date_str = dt.strftime('%d.%m %H:%M')
         text += f"{emoji} {h['amount']:.2f} TRX — {date_str} — {h['status']}\n"
 
     await message.answer(text, parse_mode="Markdown")
@@ -447,7 +458,7 @@ async def admin_pending(message: types.Message):
             f"👤 User: `{dep['user_id']}`\n"
             f"💰 Miqdor: *{dep['amount']:.2f} TRX*\n"
             f"🔗 TXID: `{dep['txid']}`\n"
-            f"🕐 Vaqt: {dep['created_at'][:16]}",
+            f"🕐 Vaqt: {dep['created_at'][:16]}",   # created_at string (Toshkent vaqti)
             parse_mode="Markdown",
             reply_markup=kb
         )
