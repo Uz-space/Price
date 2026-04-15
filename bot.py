@@ -55,6 +55,19 @@ def admin_menu():
     ], resize_keyboard=True)
 
 
+# ===================== YORDAMCHI FUNKSIYA =====================
+async def ensure_user_exists(message: types.Message):
+    """Foydalanuvchi bazada mavjudligini tekshiradi, agar yo'q bo'lsa qo'shib qo'yadi"""
+    user = db.get_user(message.from_user.id)
+    if not user:
+        user_id = message.from_user.id
+        username = message.from_user.username or "Nomsiz"
+        full_name = message.from_user.full_name
+        db.add_user(user_id, username, full_name, None)
+        user = db.get_user(user_id)
+    return user
+
+
 # ===================== START =====================
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
@@ -83,41 +96,66 @@ async def cmd_start(message: types.Message):
 # ===================== BALANS =====================
 @dp.message(F.text == "📊 Balans")
 async def show_balance(message: types.Message):
-    user = db.get_user(message.from_user.id)
-    if not user:
-        await message.answer("Iltimos, /start bosing.")
-        return
+    try:
+        user = await ensure_user_exists(message)
+        if not user:
+            await message.answer("❌ Xatolik yuz berdi. Iltimos, /start bosing.")
+            return
 
-    active = db.get_active_deposits(message.from_user.id)
-    active_text = ""
-    now = datetime.now(TZ)
-    for dep in active:
-        # dep['approved_at'] - string, masalan '2025-04-15 14:30:00'
-        approved_at = datetime.strptime(dep['approved_at'], '%Y-%m-%d %H:%M:%S')
-        # approved_at naive, uni Toshkent vaqti deb belgilaymiz
-        approved_at = approved_at.replace(tzinfo=TZ)
-        finish = approved_at + timedelta(hours=12)
-        remaining = finish - now
-        if remaining.total_seconds() > 0:
-            hours = int(remaining.total_seconds() // 3600)
-            minutes = int((remaining.total_seconds() % 3600) // 60)
-            active_text += f"\n• {dep['amount']:.2f} TRX → {dep['amount']*1.2:.2f} TRX | ⏳ {hours}s {minutes}m qoldi"
-        else:
-            active_text += f"\n• {dep['amount']:.2f} TRX → {dep['amount']*1.2:.2f} TRX | ✅ Tayyor"
+        active = db.get_active_deposits(message.from_user.id)
+        active_text = ""
+        now = datetime.now(TZ)
+        for dep in active:
+            if dep.get('approved_at'):
+                approved_at = datetime.strptime(dep['approved_at'], '%Y-%m-%d %H:%M:%S')
+                approved_at = approved_at.replace(tzinfo=TZ)
+                finish = approved_at + timedelta(hours=12)
+                remaining = finish - now
+                if remaining.total_seconds() > 0:
+                    hours = int(remaining.total_seconds() // 3600)
+                    minutes = int((remaining.total_seconds() % 3600) // 60)
+                    active_text += f"\n• {dep['amount']:.2f} TRX → {dep['amount']*1.2:.2f} TRX | ⏳ {hours}s {minutes}m qoldi"
+                else:
+                    active_text += f"\n• {dep['amount']:.2f} TRX → {dep['amount']*1.2:.2f} TRX | ✅ Tayyor"
 
-    await message.answer(
-        f"💼 *Sizning hisobingiz*\n\n"
-        f"💰 Balans: *{user['balance']:.2f} TRX*\n"
-        f"📥 Jami kiritilgan: *{user['total_deposited']:.2f} TRX*\n"
-        f"📤 Jami yechilgan: *{user['total_withdrawn']:.2f} TRX*\n"
-        f"\n⚡ Aktiv depozitlar:{active_text if active_text else ' Yo`q'}",
-        parse_mode="Markdown"
-    )
+        await message.answer(
+            f"💼 *Sizning hisobingiz*\n\n"
+            f"💰 Balans: *{user['balance']:.2f} TRX*\n"
+            f"📥 Jami kiritilgan: *{user['total_deposited']:.2f} TRX*\n"
+            f"📤 Jami yechilgan: *{user['total_withdrawn']:.2f} TRX*\n"
+            f"\n⚡ Aktiv depozitlar:{active_text if active_text else ' Yo`q'}",
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        logging.error(f"Balans ko'rsatishda xato: {e}")
+        await message.answer("❌ Xatolik yuz berdi. Iltimos, keyinroq urinib ko'ring.")
+
+
+# ===================== MA'LUMOT =====================
+@dp.message(F.text == "ℹ️ Ma'lumot")
+async def info(message: types.Message):
+    try:
+        await ensure_user_exists(message)  # Bazada borligiga ishonch hosil qilamiz
+        await message.answer(
+            "ℹ️ *Bot haqida*\n\n"
+            "🤖 1.2X Crypto Bot — kripto investitsiya platformasi\n\n"
+            "📌 Qoidalar:\n"
+            f"• Minimal depozit: {MIN_DEPOSIT} TRX\n"
+            "• 12 soatdan keyin 1.2x qaytarish\n"
+            "• TRX (TRC20) qabul qilinadi\n"
+            "• Referal bonus: 5%\n\n"
+            "📞 Admin: @admin_username",
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        logging.error(f"Ma'lumot ko'rsatishda xato: {e}")
+        await message.answer("❌ Xatolik yuz berdi. Iltimos, keyinroq urinib ko'ring.")
 
 
 # ===================== DEPOZIT =====================
 @dp.message(F.text == "💰 Depozit")
 async def deposit_start(message: types.Message, state: FSMContext):
+    await ensure_user_exists(message)
     await message.answer(
         f"💳 *Depozit qilish*\n\n"
         f"📌 Minimal miqdor: *{MIN_DEPOSIT} TRX*\n\n"
@@ -294,6 +332,11 @@ async def auto_payout(user_id: int, amount: float, dep_id: int):
 # ===================== REFERAL =====================
 @dp.message(F.text == "👥 Referal")
 async def show_referral(message: types.Message):
+    user = await ensure_user_exists(message)
+    if not user:
+        await message.answer("❌ Xatolik. Iltimos, /start bosing.")
+        return
+
     user_id = message.from_user.id
     count = db.get_referral_count(user_id)
     earnings = db.get_referral_earnings(user_id)
@@ -313,6 +356,11 @@ async def show_referral(message: types.Message):
 # ===================== TARIX =====================
 @dp.message(F.text == "📜 Tarix")
 async def show_history(message: types.Message):
+    user = await ensure_user_exists(message)
+    if not user:
+        await message.answer("❌ Xatolik. Iltimos, /start bosing.")
+        return
+
     history = db.get_user_history(message.from_user.id, limit=10)
     if not history:
         await message.answer("📭 Hali hech qanday tranzaksiya yo'q.")
@@ -322,7 +370,6 @@ async def show_history(message: types.Message):
     status_map = {"pending": "⏳", "approved": "✅", "paid": "💰", "rejected": "❌"}
     for h in history:
         emoji = status_map.get(h['status'], "•")
-        # created_at datetime obyekti (naive), uni Toshkent vaqti deb belgilaymiz
         dt = h['created_at'].replace(tzinfo=TZ)
         date_str = dt.strftime('%d.%m %H:%M')
         text += f"{emoji} {h['amount']:.2f} TRX — {date_str} — {h['status']}\n"
@@ -333,7 +380,7 @@ async def show_history(message: types.Message):
 # ===================== YECHISH =====================
 @dp.message(F.text == "💸 Yechib olish")
 async def withdraw_start(message: types.Message, state: FSMContext):
-    user = db.get_user(message.from_user.id)
+    user = await ensure_user_exists(message)
     if not user or user['balance'] < 10:
         bal = user['balance'] if user else 0
         await message.answer(
@@ -458,7 +505,7 @@ async def admin_pending(message: types.Message):
             f"👤 User: `{dep['user_id']}`\n"
             f"💰 Miqdor: *{dep['amount']:.2f} TRX*\n"
             f"🔗 TXID: `{dep['txid']}`\n"
-            f"🕐 Vaqt: {dep['created_at'][:16]}",   # created_at string (Toshkent vaqti)
+            f"🕐 Vaqt: {dep['created_at'][:16]}",
             parse_mode="Markdown",
             reply_markup=kb
         )
@@ -515,22 +562,6 @@ async def back_to_main(message: types.Message):
     if message.from_user.id not in ADMIN_IDS:
         return
     await message.answer("Asosiy menyu:", reply_markup=main_menu())
-
-
-# ===================== MA'LUMOT =====================
-@dp.message(F.text == "ℹ️ Ma'lumot")
-async def info(message: types.Message):
-    await message.answer(
-        "ℹ️ *Bot haqida*\n\n"
-        "🤖 1.2X Crypto Bot — kripto investitsiya platformasi\n\n"
-        "📌 Qoidalar:\n"
-        f"• Minimal depozit: {MIN_DEPOSIT} TRX\n"
-        "• 12 soatdan keyin 1.2x qaytarish\n"
-        "• TRX (TRC20) qabul qilinadi\n"
-        "• Referal bonus: 5%\n\n"
-        "📞 Admin: @admin_username",
-        parse_mode="Markdown"
-    )
 
 
 # ===================== MAIN =====================
