@@ -11,22 +11,19 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from database import Database
 
 # ===================== SOZLAMALAR =====================
-BOT_TOKEN = "8776678535:AAHMhBYxqHDwJBhnHuJ4v_hgsGRUA9T59EA"          # @BotFather dan oling
-ADMIN_IDS = [7399101034]               # O'zingizning Telegram ID (@userinfobot)
-WALLET_ADDRESS = "TQ4juFaqcHfhKR5vLSfFUjiyyqvsSCscP6"   # TRX TRC20 manzilingiz
-MIN_DEPOSIT = 10                      # Minimal depozit (TRX)
+BOT_TOKEN = "8776678535:AAHMhBYxqHDwJBhnHuJ4v_hgsGRUA9T59EA"
+ADMIN_IDS = [7399101034]
+WALLET_ADDRESS = "TQ4juFaqcHfhKR5vLSfFUjiyyqvsSCscP6"
+MIN_DEPOSIT = 10
 
-# Vaqt zonasi (Toshkent UTC+5)
 TZ = ZoneInfo("Asia/Tashkent")
 
-# ===================== SETUP =====================
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 db = Database()
 
 
-# ===================== STATES =====================
 class DepositState(StatesGroup):
     waiting_amount = State()
     waiting_txid = State()
@@ -39,7 +36,6 @@ class BroadcastState(StatesGroup):
     waiting_message = State()
 
 
-# ===================== KLAVIATURALAR =====================
 def main_menu():
     return ReplyKeyboardMarkup(keyboard=[
         [KeyboardButton(text="💰 Depozit"), KeyboardButton(text="📊 Balans")],
@@ -55,9 +51,9 @@ def admin_menu():
     ], resize_keyboard=True)
 
 
-# ===================== YORDAMCHI FUNKSIYA =====================
-async def ensure_user_exists(message: types.Message):
-    """Foydalanuvchi bazada mavjudligini tekshiradi, agar yo'q bo'lsa qo'shib qo'yadi"""
+# ==================== YORDAMCHI FUNKSIYA ====================
+async def ensure_user(message: types.Message):
+    """Foydalanuvchi bazada mavjudligini tekshiradi, yo'q bo'lsa qo'shib qo'yadi"""
     user = db.get_user(message.from_user.id)
     if not user:
         user_id = message.from_user.id
@@ -74,12 +70,9 @@ async def cmd_start(message: types.Message):
     user_id = message.from_user.id
     username = message.from_user.username or "Nomsiz"
     full_name = message.from_user.full_name
-
     args = message.text.split()
     referrer_id = int(args[1]) if len(args) > 1 and args[1].isdigit() else None
-
     db.add_user(user_id, username, full_name, referrer_id)
-
     await message.answer(
         f"👋 Xush kelibsiz, *{full_name}*!\n\n"
         f"🤖 *1.2X Crypto Bot*ga xush kelibsiz!\n\n"
@@ -96,66 +89,58 @@ async def cmd_start(message: types.Message):
 # ===================== BALANS =====================
 @dp.message(F.text == "📊 Balans")
 async def show_balance(message: types.Message):
-    try:
-        user = await ensure_user_exists(message)
-        if not user:
-            await message.answer("❌ Xatolik yuz berdi. Iltimos, /start bosing.")
-            return
+    user = await ensure_user(message)
+    if not user:
+        await message.answer("❌ Xatolik. Iltimos, /start bosing.")
+        return
 
-        active = db.get_active_deposits(message.from_user.id)
-        active_text = ""
-        now = datetime.now(TZ)
-        for dep in active:
-            if dep.get('approved_at'):
-                approved_at = datetime.strptime(dep['approved_at'], '%Y-%m-%d %H:%M:%S')
-                approved_at = approved_at.replace(tzinfo=TZ)
-                finish = approved_at + timedelta(hours=12)
-                remaining = finish - now
-                if remaining.total_seconds() > 0:
-                    hours = int(remaining.total_seconds() // 3600)
-                    minutes = int((remaining.total_seconds() % 3600) // 60)
-                    active_text += f"\n• {dep['amount']:.2f} TRX → {dep['amount']*1.2:.2f} TRX | ⏳ {hours}s {minutes}m qoldi"
-                else:
-                    active_text += f"\n• {dep['amount']:.2f} TRX → {dep['amount']*1.2:.2f} TRX | ✅ Tayyor"
+    active = db.get_active_deposits(message.from_user.id)
+    active_text = ""
+    now = datetime.now(TZ)
+    for dep in active:
+        if dep.get('approved_at'):
+            approved_at = datetime.strptime(dep['approved_at'], '%Y-%m-%d %H:%M:%S')
+            approved_at = approved_at.replace(tzinfo=TZ)
+            finish = approved_at + timedelta(hours=12)
+            remaining = finish - now
+            if remaining.total_seconds() > 0:
+                hours = int(remaining.total_seconds() // 3600)
+                minutes = int((remaining.total_seconds() % 3600) // 60)
+                active_text += f"\n• {dep['amount']:.2f} TRX → {dep['amount']*1.2:.2f} TRX | ⏳ {hours}s {minutes}m qoldi"
+            else:
+                active_text += f"\n• {dep['amount']:.2f} TRX → {dep['amount']*1.2:.2f} TRX | ✅ Tayyor"
 
-        await message.answer(
-            f"💼 *Sizning hisobingiz*\n\n"
-            f"💰 Balans: *{user['balance']:.2f} TRX*\n"
-            f"📥 Jami kiritilgan: *{user['total_deposited']:.2f} TRX*\n"
-            f"📤 Jami yechilgan: *{user['total_withdrawn']:.2f} TRX*\n"
-            f"\n⚡ Aktiv depozitlar:{active_text if active_text else ' Yo`q'}",
-            parse_mode="Markdown"
-        )
-    except Exception as e:
-        logging.error(f"Balans ko'rsatishda xato: {e}")
-        await message.answer("❌ Xatolik yuz berdi. Iltimos, keyinroq urinib ko'ring.")
+    await message.answer(
+        f"💼 *Sizning hisobingiz*\n\n"
+        f"💰 Balans: *{user['balance']:.2f} TRX*\n"
+        f"📥 Jami kiritilgan: *{user['total_deposited']:.2f} TRX*\n"
+        f"📤 Jami yechilgan: *{user['total_withdrawn']:.2f} TRX*\n"
+        f"\n⚡ Aktiv depozitlar:{active_text if active_text else ' Yo`q'}",
+        parse_mode="Markdown"
+    )
 
 
 # ===================== MA'LUMOT =====================
 @dp.message(F.text == "ℹ️ Ma'lumot")
 async def info(message: types.Message):
-    try:
-        await ensure_user_exists(message)  # Bazada borligiga ishonch hosil qilamiz
-        await message.answer(
-            "ℹ️ *Bot haqida*\n\n"
-            "🤖 1.2X Crypto Bot — kripto investitsiya platformasi\n\n"
-            "📌 Qoidalar:\n"
-            f"• Minimal depozit: {MIN_DEPOSIT} TRX\n"
-            "• 12 soatdan keyin 1.2x qaytarish\n"
-            "• TRX (TRC20) qabul qilinadi\n"
-            "• Referal bonus: 5%\n\n"
-            "📞 Admin: @admin_username",
-            parse_mode="Markdown"
-        )
-    except Exception as e:
-        logging.error(f"Ma'lumot ko'rsatishda xato: {e}")
-        await message.answer("❌ Xatolik yuz berdi. Iltimos, keyinroq urinib ko'ring.")
+    await ensure_user(message)
+    await message.answer(
+        "ℹ️ *Bot haqida*\n\n"
+        "🤖 1.2X Crypto Bot — kripto investitsiya platformasi\n\n"
+        "📌 Qoidalar:\n"
+        f"• Minimal depozit: {MIN_DEPOSIT} TRX\n"
+        "• 12 soatdan keyin 1.2x qaytarish\n"
+        "• TRX (TRC20) qabul qilinadi\n"
+        "• Referal bonus: 5%\n\n"
+        "📞 Admin: @admin_username",
+        parse_mode="Markdown"
+    )
 
 
 # ===================== DEPOZIT =====================
 @dp.message(F.text == "💰 Depozit")
 async def deposit_start(message: types.Message, state: FSMContext):
-    await ensure_user_exists(message)
+    await ensure_user(message)
     await message.answer(
         f"💳 *Depozit qilish*\n\n"
         f"📌 Minimal miqdor: *{MIN_DEPOSIT} TRX*\n\n"
@@ -172,14 +157,12 @@ async def deposit_amount(message: types.Message, state: FSMContext):
         if amount < MIN_DEPOSIT:
             await message.answer(f"❌ Minimal miqdor {MIN_DEPOSIT} TRX! Qayta kiriting:")
             return
-
         await state.update_data(amount=amount)
         await message.answer(
             f"✅ Miqdor: *{amount:.2f} TRX*\n\n"
             f"📤 Quyidagi manzilga *TRX (TRC20)* yuboring:\n"
             f"`{WALLET_ADDRESS}`\n\n"
-            f"💡 To'lov qilgandan so'ng *Transaction ID (TXID)*ni yuboring:\n"
-            f"_(TXID ni blockchain explorer dan topishingiz mumkin)_",
+            f"💡 To'lov qilgandan so'ng *Transaction ID (TXID)*ni yuboring:",
             parse_mode="Markdown"
         )
         await state.set_state(DepositState.waiting_txid)
@@ -193,9 +176,7 @@ async def deposit_txid(message: types.Message, state: FSMContext):
     amount = data['amount']
     txid = message.text.strip()
     user_id = message.from_user.id
-
     dep_id = db.create_deposit(user_id, amount, txid)
-
     for admin_id in ADMIN_IDS:
         try:
             kb = InlineKeyboardMarkup(inline_keyboard=[[
@@ -214,13 +195,10 @@ async def deposit_txid(message: types.Message, state: FSMContext):
                 parse_mode="Markdown",
                 reply_markup=kb
             )
-        except Exception as e:
-            logging.error(f"Admin xabari yuborilmadi: {e}")
-
+        except:
+            pass
     await message.answer(
-        "✅ *So'rovingiz qabul qilindi!*\n\n"
-        "⏳ Admin tasdiqlashini kuting (odatda 5-30 daqiqa).\n"
-        "Tasdiqlangandan so'ng *12 soat* ichida pulingiz 1.2x bo'ladi!",
+        "✅ *So'rovingiz qabul qilindi!*\n\n⏳ Admin tasdiqlashini kuting.",
         parse_mode="Markdown",
         reply_markup=main_menu()
     )
@@ -233,20 +211,12 @@ async def approve_deposit(callback: types.CallbackQuery):
     if callback.from_user.id not in ADMIN_IDS:
         await callback.answer("❌ Ruxsat yo'q!")
         return
-
     dep_id = int(callback.data.split("_")[1])
     deposit = db.get_deposit(dep_id)
-
-    if not deposit:
-        await callback.answer("Depozit topilmadi!")
+    if not deposit or deposit['status'] != 'pending':
+        await callback.answer("Depozit topilmadi yoki allaqachon ko'rib chiqilgan!")
         return
-
-    if deposit['status'] != 'pending':
-        await callback.answer("Bu depozit allaqachon ko'rib chiqilgan!")
-        return
-
     db.approve_deposit(dep_id)
-
     finish_time = datetime.now(TZ) + timedelta(hours=12)
     try:
         await bot.send_message(
@@ -257,15 +227,10 @@ async def approve_deposit(callback: types.CallbackQuery):
             f"⏰ Tugash vaqti: {finish_time.strftime('%d.%m.%Y %H:%M')}",
             parse_mode="Markdown"
         )
-    except Exception as e:
-        logging.error(f"Foydalanuvchiga xabar yuborilmadi: {e}")
-
-    await callback.message.edit_text(
-        callback.message.text + "\n\n✅ *TASDIQLANDI*",
-        parse_mode="Markdown"
-    )
+    except:
+        pass
+    await callback.message.edit_text(callback.message.text + "\n\n✅ *TASDIQLANDI*", parse_mode="Markdown")
     await callback.answer("✅ Tasdiqlandi!")
-
     asyncio.create_task(auto_payout(deposit['user_id'], deposit['amount'] * 1.2, dep_id))
 
 
@@ -274,81 +239,41 @@ async def reject_deposit(callback: types.CallbackQuery):
     if callback.from_user.id not in ADMIN_IDS:
         await callback.answer("❌ Ruxsat yo'q!")
         return
-
     dep_id = int(callback.data.split("_")[1])
     deposit = db.get_deposit(dep_id)
-
     if not deposit:
         await callback.answer("Depozit topilmadi!")
         return
-
     db.reject_deposit(dep_id)
-
     try:
-        await bot.send_message(
-            deposit['user_id'],
-            "❌ *Depozitingiz rad etildi.*\n\nIltimos, admin bilan bog'laning.",
-            parse_mode="Markdown"
-        )
+        await bot.send_message(deposit['user_id'], "❌ *Depozitingiz rad etildi.*", parse_mode="Markdown")
     except:
         pass
-
-    await callback.message.edit_text(
-        callback.message.text + "\n\n❌ *RAD ETILDI*",
-        parse_mode="Markdown"
-    )
+    await callback.message.edit_text(callback.message.text + "\n\n❌ *RAD ETILDI*", parse_mode="Markdown")
     await callback.answer("❌ Rad etildi!")
 
 
-# ===================== AVTOMATIK 1.2X TO'LOV =====================
 async def auto_payout(user_id: int, amount: float, dep_id: int):
     await asyncio.sleep(12 * 3600)
     db.add_balance(user_id, amount)
     db.mark_paid(dep_id)
-
     try:
-        await bot.send_message(
-            user_id,
-            f"🎊 *Tabriklaymiz! Pulingiz 1.2x bo'ldi!*\n\n"
-            f"💰 Hisobingizga *{amount:.2f} TRX* qo'shildi!\n"
-            f"💸 Yechib olish uchun: /start",
-            parse_mode="Markdown"
-        )
-    except Exception as e:
-        logging.error(f"Payout xabari yuborilmadi: {e}")
-
-    for admin_id in ADMIN_IDS:
-        try:
-            await bot.send_message(
-                admin_id,
-                f"✅ Avtomatik to'lov bajarildi\n"
-                f"👤 User: {user_id}\n"
-                f"💰 Miqdor: {amount:.2f} TRX"
-            )
-        except:
-            pass
+        await bot.send_message(user_id, f"🎊 *Tabriklaymiz! Pulingiz 1.2x bo'ldi!*\n\n💰 Hisobingizga *{amount:.2f} TRX* qo'shildi!", parse_mode="Markdown")
+    except:
+        pass
 
 
 # ===================== REFERAL =====================
 @dp.message(F.text == "👥 Referal")
 async def show_referral(message: types.Message):
-    user = await ensure_user_exists(message)
-    if not user:
-        await message.answer("❌ Xatolik. Iltimos, /start bosing.")
-        return
-
+    await ensure_user(message)
     user_id = message.from_user.id
     count = db.get_referral_count(user_id)
     earnings = db.get_referral_earnings(user_id)
     bot_info = await bot.get_me()
     link = f"https://t.me/{bot_info.username}?start={user_id}"
-
     await message.answer(
-        f"👥 *Referal tizimi*\n\n"
-        f"🔗 Sizning havolangiz:\n`{link}`\n\n"
-        f"👤 Taklif qilganlar: *{count}* kishi\n"
-        f"💰 Referal daromad: *{earnings:.2f} TRX*\n\n"
-        f"💡 Har bir do'stingiz depozit qilganda *5%* bonus olasiz!",
+        f"👥 *Referal tizimi*\n\n🔗 Sizning havolangiz:\n`{link}`\n\n👤 Taklif qilganlar: *{count}* kishi\n💰 Referal daromad: *{earnings:.2f} TRX*\n\n💡 Har bir do'stingiz depozit qilganda *5%* bonus olasiz!",
         parse_mode="Markdown"
     )
 
@@ -356,16 +281,11 @@ async def show_referral(message: types.Message):
 # ===================== TARIX =====================
 @dp.message(F.text == "📜 Tarix")
 async def show_history(message: types.Message):
-    user = await ensure_user_exists(message)
-    if not user:
-        await message.answer("❌ Xatolik. Iltimos, /start bosing.")
-        return
-
+    await ensure_user(message)
     history = db.get_user_history(message.from_user.id, limit=10)
     if not history:
         await message.answer("📭 Hali hech qanday tranzaksiya yo'q.")
         return
-
     text = "📜 *So'nggi 10 ta tranzaksiya:*\n\n"
     status_map = {"pending": "⏳", "approved": "✅", "paid": "💰", "rejected": "❌"}
     for h in history:
@@ -373,29 +293,18 @@ async def show_history(message: types.Message):
         dt = h['created_at'].replace(tzinfo=TZ)
         date_str = dt.strftime('%d.%m %H:%M')
         text += f"{emoji} {h['amount']:.2f} TRX — {date_str} — {h['status']}\n"
-
     await message.answer(text, parse_mode="Markdown")
 
 
 # ===================== YECHISH =====================
 @dp.message(F.text == "💸 Yechib olish")
 async def withdraw_start(message: types.Message, state: FSMContext):
-    user = await ensure_user_exists(message)
+    user = await ensure_user(message)
     if not user or user['balance'] < 10:
         bal = user['balance'] if user else 0
-        await message.answer(
-            f"❌ Minimal yechish miqdori *10 TRX*.\n"
-            f"Sizning balansigiz: *{bal:.2f} TRX*",
-            parse_mode="Markdown"
-        )
+        await message.answer(f"❌ Minimal yechish miqdori *10 TRX*.\nSizning balansigiz: *{bal:.2f} TRX*", parse_mode="Markdown")
         return
-
-    await message.answer(
-        f"💸 *Pul yechish*\n\n"
-        f"💰 Mavjud balans: *{user['balance']:.2f} TRX*\n\n"
-        f"TRX (TRC20) wallet manzilingizni kiriting:",
-        parse_mode="Markdown"
-    )
+    await message.answer(f"💸 *Pul yechish*\n\n💰 Mavjud balans: *{user['balance']:.2f} TRX*\n\nTRX (TRC20) wallet manzilingizni kiriting:", parse_mode="Markdown")
     await state.set_state(WithdrawState.waiting_address)
 
 
@@ -403,11 +312,7 @@ async def withdraw_start(message: types.Message, state: FSMContext):
 async def withdraw_address(message: types.Message, state: FSMContext):
     await state.update_data(address=message.text.strip())
     user = db.get_user(message.from_user.id)
-    await message.answer(
-        f"💰 Qancha yechmoqchisiz?\n"
-        f"_(Max: {user['balance']:.2f} TRX)_",
-        parse_mode="Markdown"
-    )
+    await message.answer(f"💰 Qancha yechmoqchisiz?\n_(Max: {user['balance']:.2f} TRX)_", parse_mode="Markdown")
     await state.set_state(WithdrawState.waiting_amount)
 
 
@@ -416,39 +321,22 @@ async def withdraw_amount(message: types.Message, state: FSMContext):
     try:
         amount = float(message.text.replace(",", "."))
         user = db.get_user(message.from_user.id)
-
         if amount > user['balance']:
             await message.answer("❌ Yetarli mablag' yo'q!")
             return
         if amount < 10:
             await message.answer("❌ Minimal yechish 10 TRX!")
             return
-
         data = await state.get_data()
         address = data['address']
         db.create_withdrawal(message.from_user.id, amount, address)
         db.deduct_balance(message.from_user.id, amount)
-
         for admin_id in ADMIN_IDS:
             try:
-                await bot.send_message(
-                    admin_id,
-                    f"💸 *Yangi yechish so'rovi*\n\n"
-                    f"👤 User ID: `{message.from_user.id}`\n"
-                    f"👤 Ism: {message.from_user.full_name}\n"
-                    f"💰 Miqdor: *{amount:.2f} TRX*\n"
-                    f"📍 Manzil: `{address}`",
-                    parse_mode="Markdown"
-                )
+                await bot.send_message(admin_id, f"💸 *Yangi yechish so'rovi*\n\n👤 User ID: `{message.from_user.id}`\n👤 Ism: {message.from_user.full_name}\n💰 Miqdor: *{amount:.2f} TRX*\n📍 Manzil: `{address}`", parse_mode="Markdown")
             except:
                 pass
-
-        await message.answer(
-            "✅ *Yechish so'rovi qabul qilindi!*\n\n"
-            "Admin ko'rib chiqib, 1-24 soat ichida yuboradi.",
-            parse_mode="Markdown",
-            reply_markup=main_menu()
-        )
+        await message.answer("✅ *Yechish so'rovi qabul qilindi!*\n\nAdmin ko'rib chiqib, 1-24 soat ichida yuboradi.", parse_mode="Markdown", reply_markup=main_menu())
         await state.clear()
     except ValueError:
         await message.answer("❌ Noto'g'ri raqam! Qayta kiriting:")
@@ -462,12 +350,7 @@ async def admin_panel(message: types.Message):
         return
     stats = db.get_stats()
     await message.answer(
-        f"🔐 *Admin Panel*\n\n"
-        f"👤 Jami foydalanuvchilar: *{stats['users']}*\n"
-        f"💰 Jami depozit: *{stats['total_deposits']:.2f} TRX*\n"
-        f"📤 Jami 1.2x to'lovlar: *{stats['total_payouts']:.2f} TRX*\n"
-        f"⏳ Kutayotgan: *{stats['pending']}*\n"
-        f"✅ Aktiv: *{stats['approved']}*",
+        f"🔐 *Admin Panel*\n\n👤 Jami foydalanuvchilar: *{stats['users']}*\n💰 Jami depozit: *{stats['total_deposits']:.2f} TRX*\n📤 Jami 1.2x to'lovlar: *{stats['total_payouts']:.2f} TRX*\n⏳ Kutayotgan: *{stats['pending']}*\n✅ Aktiv: *{stats['approved']}*",
         parse_mode="Markdown",
         reply_markup=admin_menu()
     )
@@ -501,11 +384,7 @@ async def admin_pending(message: types.Message):
             InlineKeyboardButton(text="❌ Rad", callback_data=f"reject_{dep['id']}")
         ]])
         await message.answer(
-            f"💳 *Depozit #{dep['id']}*\n"
-            f"👤 User: `{dep['user_id']}`\n"
-            f"💰 Miqdor: *{dep['amount']:.2f} TRX*\n"
-            f"🔗 TXID: `{dep['txid']}`\n"
-            f"🕐 Vaqt: {dep['created_at'][:16]}",
+            f"💳 *Depozit #{dep['id']}*\n👤 User: `{dep['user_id']}`\n💰 Miqdor: *{dep['amount']:.2f} TRX*\n🔗 TXID: `{dep['txid']}`\n🕐 Vaqt: {dep['created_at'][:16]}",
             parse_mode="Markdown",
             reply_markup=kb
         )
@@ -533,11 +412,7 @@ async def broadcast_send(message: types.Message, state: FSMContext):
             await asyncio.sleep(0.05)
         except:
             failed += 1
-
-    await message.answer(
-        f"📢 Xabar yuborildi!\n✅ Muvaffaqiyatli: {sent}\n❌ Xato: {failed}",
-        reply_markup=admin_menu()
-    )
+    await message.answer(f"📢 Xabar yuborildi!\n✅ Muvaffaqiyatli: {sent}\n❌ Xato: {failed}", reply_markup=admin_menu())
     await state.clear()
 
 
@@ -547,12 +422,7 @@ async def admin_stats(message: types.Message):
         return
     stats = db.get_stats()
     await message.answer(
-        f"📈 *Bot statistikasi*\n\n"
-        f"👤 Foydalanuvchilar: {stats['users']}\n"
-        f"💰 Jami depozit: {stats['total_deposits']:.2f} TRX\n"
-        f"📤 Jami 1.2x to'lovlar: {stats['total_payouts']:.2f} TRX\n"
-        f"⏳ Kutayotganlar: {stats['pending']}\n"
-        f"✅ Aktiv depozitlar: {stats['approved']}",
+        f"📈 *Bot statistikasi*\n\n👤 Foydalanuvchilar: {stats['users']}\n💰 Jami depozit: {stats['total_deposits']:.2f} TRX\n📤 Jami 1.2x to'lovlar: {stats['total_payouts']:.2f} TRX\n⏳ Kutayotganlar: {stats['pending']}\n✅ Aktiv depozitlar: {stats['approved']}",
         parse_mode="Markdown"
     )
 
@@ -564,7 +434,6 @@ async def back_to_main(message: types.Message):
     await message.answer("Asosiy menyu:", reply_markup=main_menu())
 
 
-# ===================== MAIN =====================
 async def main():
     db.create_tables()
     print("✅ Bot ishga tushdi!")
