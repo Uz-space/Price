@@ -16,7 +16,7 @@ from aiogram.types import Update
 from database import Database
 
 # ===================== CONFIGURATION =====================
-BOT_TOKEN = "8776678535:AAHMhBYxqHDwJBhnHuJ4v_hgsGRUA9T59EA"
+BOT_TOKEN = "8776678535:AAHAJJQunvKAjx0zhmWvU0cGmE_STAZ5VBU "
 ADMIN_IDS = [7399101034]               # Replace with your Telegram ID
 WALLET_ADDRESS = "TDwNz8zRsL9oQqw7c8UTe3cS3neiZLo3ay"
 MIN_DEPOSIT = 10
