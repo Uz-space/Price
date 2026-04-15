@@ -2,6 +2,10 @@ import sqlite3
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from decimal import Decimal, ROUND_HALF_UP
+import pytz
+
+# Toshkent vaqt zonasi (UTC+5)
+TZ = pytz.timezone('Asia/Tashkent')
 
 class Database:
     def __init__(self, db_path: str = "bot.db"):
@@ -11,6 +15,18 @@ class Database:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         return conn
+
+    def _to_decimal(self, value: float) -> Decimal:
+        """Float ni Decimal ga o'tkazish (aniqlik uchun)"""
+        return Decimal(str(value))
+
+    def _to_float(self, value: Decimal) -> float:
+        """Decimal ni float ga qaytarish"""
+        return float(value)
+
+    def _now_tashkent(self) -> str:
+        """Toshkent vaqtini string formatda qaytaradi"""
+        return datetime.now(TZ).strftime('%Y-%m-%d %H:%M:%S')
 
     def create_tables(self):
         with self.get_conn() as conn:
@@ -24,7 +40,7 @@ class Database:
                     total_deposited REAL DEFAULT 0,
                     total_withdrawn REAL DEFAULT 0,
                     referrer_id INTEGER,
-                    created_at TEXT DEFAULT (datetime('now','localtime'))
+                    created_at TEXT
                 );
 
                 CREATE TABLE IF NOT EXISTS deposits (
@@ -33,7 +49,7 @@ class Database:
                     amount REAL NOT NULL,
                     txid TEXT,
                     status TEXT DEFAULT 'pending',
-                    created_at TEXT DEFAULT (datetime('now','localtime')),
+                    created_at TEXT,
                     approved_at TEXT,
                     paid_at TEXT
                 );
@@ -44,26 +60,19 @@ class Database:
                     amount REAL NOT NULL,
                     address TEXT NOT NULL,
                     status TEXT DEFAULT 'pending',
-                    created_at TEXT DEFAULT (datetime('now','localtime'))
+                    created_at TEXT
                 );
             """)
             print("✅ Ma'lumotlar bazasi tayyor!")
 
-    def _to_decimal(self, value: float) -> Decimal:
-        """Float ni Decimal ga o'tkazish (aniqlik uchun)"""
-        return Decimal(str(value))
-
-    def _to_float(self, value: Decimal) -> float:
-        """Decimal ni float ga qaytarish"""
-        return float(value)
-
     # ==================== USERS ====================
     def add_user(self, user_id: int, username: str, full_name: str, referrer_id: Optional[int] = None):
+        now = self._now_tashkent()
         with self.get_conn() as conn:
             conn.execute("""
-                INSERT OR IGNORE INTO users (user_id, username, full_name, referrer_id)
-                VALUES (?, ?, ?, ?)
-            """, (user_id, username, full_name, referrer_id))
+                INSERT OR IGNORE INTO users (user_id, username, full_name, referrer_id, created_at)
+                VALUES (?, ?, ?, ?, ?)
+            """, (user_id, username, full_name, referrer_id, now))
 
     def get_user(self, user_id: int) -> Optional[Dict]:
         with self.get_conn() as conn:
@@ -99,11 +108,12 @@ class Database:
 
     # ==================== DEPOSITS ====================
     def create_deposit(self, user_id: int, amount: float, txid: str) -> int:
+        now = self._now_tashkent()
         with self.get_conn() as conn:
             cursor = conn.execute("""
-                INSERT INTO deposits (user_id, amount, txid)
-                VALUES (?, ?, ?)
-            """, (user_id, amount, txid))
+                INSERT INTO deposits (user_id, amount, txid, created_at)
+                VALUES (?, ?, ?, ?)
+            """, (user_id, amount, txid, now))
             return cursor.lastrowid
 
     def get_deposit(self, dep_id: int) -> Optional[Dict]:
@@ -115,9 +125,8 @@ class Database:
 
     def approve_deposit(self, dep_id: int):
         """Depozitni tasdiqlash va referal bonus hisoblash"""
+        now = self._now_tashkent()
         with self.get_conn() as conn:
-            now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            
             # Depozitni tasdiqlash
             conn.execute("""
                 UPDATE deposits
@@ -162,7 +171,7 @@ class Database:
 
     def mark_paid(self, dep_id: int):
         """Depozit bo'yicha to'lov amalga oshirilganini belgilash"""
-        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        now = self._now_tashkent()
         with self.get_conn() as conn:
             conn.execute("""
                 UPDATE deposits
@@ -182,6 +191,7 @@ class Database:
             for r in rows:
                 d = dict(r)
                 if d.get('approved_at'):
+                    # Stringni datetime obyektiga o'tkazish (Toshkent vaqti bilan)
                     d['approved_at'] = datetime.strptime(d['approved_at'], '%Y-%m-%d %H:%M:%S')
                 result.append(d)
             return result
@@ -216,11 +226,12 @@ class Database:
     # ==================== WITHDRAWALS ====================
     def create_withdrawal(self, user_id: int, amount: float, address: str):
         """Yechish so'rovini yaratish"""
+        now = self._now_tashkent()
         with self.get_conn() as conn:
             conn.execute("""
-                INSERT INTO withdrawals (user_id, amount, address)
-                VALUES (?, ?, ?)
-            """, (user_id, amount, address))
+                INSERT INTO withdrawals (user_id, amount, address, created_at)
+                VALUES (?, ?, ?, ?)
+            """, (user_id, amount, address, now))
 
     # ==================== REFERRAL ====================
     def get_referral_count(self, user_id: int) -> int:
@@ -241,7 +252,6 @@ class Database:
                 WHERE u.referrer_id = ?
                   AND d.status IN ('approved', 'paid')
             """, (user_id,)).fetchone()
-            # 2 xonali aniqlikda qaytarish
             if row and row[0]:
                 return round(row[0], 2)
             return 0.0
@@ -250,40 +260,27 @@ class Database:
     def get_stats(self) -> Dict[str, Any]:
         """Statistika ma'lumotlari (1.2x tizimga mos)"""
         with self.get_conn() as conn:
-            # Jami foydalanuvchilar
             users = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
-            
-            # Jami depozitlar (tasdiqlangan va to'langan)
             total_dep = conn.execute("""
                 SELECT COALESCE(SUM(amount), 0)
                 FROM deposits WHERE status IN ('approved', 'paid')
             """).fetchone()[0]
-            
-            # To'langan depozitlar summasi
             total_paid = conn.execute("""
                 SELECT COALESCE(SUM(amount), 0)
                 FROM deposits WHERE status = 'paid'
             """).fetchone()[0]
-            
-            # 1.2x tizim bo'yicha jami to'lovlar
-            # (Har bir to'langan depozit uchun 1.2 barobar)
             total_payouts = total_paid * Decimal('1.2')
-            
-            # Kutilayotgan depozitlar soni
             pending = conn.execute(
                 "SELECT COUNT(*) FROM deposits WHERE status = 'pending'"
             ).fetchone()[0]
-            
-            # Aktiv depozitlar soni (tasdiqlangan ammo to'lanmagan)
             approved = conn.execute(
                 "SELECT COUNT(*) FROM deposits WHERE status = 'approved'"
             ).fetchone()[0]
 
-            # Float ga o'tkazish va 2 xonali aniqlik
             return {
                 "users": users,
                 "total_deposits": round(float(total_dep), 2),
                 "total_payouts": round(float(total_payouts), 2),
                 "pending": pending,
                 "approved": approved
-                }
+            }
