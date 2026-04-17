@@ -144,15 +144,15 @@ async def show_balance(message: types.Message):
         if remaining.total_seconds() > 0:
             h = int(remaining.total_seconds() // 3600)
             m = int((remaining.total_seconds() % 3600) // 60)
-            active_text += f"\n• {dep['amount']} {dep['crypto_symbol']} → {payout:.4f} | ⏳ {h}s {m}m"
+            active_text += f"\n• {dep['amount']:.8f} {dep['crypto_symbol']} → {payout:.8f} | ⏳ {h}s {m}m"
         else:
-            active_text += f"\n• {dep['amount']} {dep['crypto_symbol']} → {payout:.4f} | ✅ Tayyor"
+            active_text += f"\n• {dep['amount']:.8f} {dep['crypto_symbol']} → {payout:.8f} | ✅ Tayyor"
 
     await message.answer(
         f"💼 *Hisobingiz*\n\n"
-        f"💰 Balans: *{user['balance_usd']:.4f}*\n"
-        f"📥 Jami kiritilgan: *{user['total_deposited']:.4f}*\n"
-        f"📤 Jami yechilgan: *{user['total_withdrawn']:.4f}*\n"
+        f"💰 Balans: *{user['balance_usd']:.8f}*\n"
+        f"📥 Jami kiritilgan: *{user['total_deposited']:.8f}*\n"
+        f"📤 Jami yechilgan: *{user['total_withdrawn']:.8f}*\n"
         f"\n⚡ Aktiv depozitlar:{active_text if active_text else ' Yoq'}",
         parse_mode="Markdown"
     )
@@ -209,8 +209,8 @@ async def deposit_amount(message: types.Message, state: FSMContext):
         await message.answer(
             f"💳 *To'lov ma'lumotlari*\n\n"
             f"🪙 Crypto: *{crypto['symbol']}*\n"
-            f"💰 Miqdor: *{amount} {crypto['symbol']}*\n"
-            f"📈 Qaytariladigan: *{payout:.4f} {crypto['symbol']}*\n"
+            f"💰 Miqdor: *{amount:.8f} {crypto['symbol']}*\n"
+            f"📈 Qaytariladigan: *{payout:.8f} {crypto['symbol']}*\n"
             f"⏰ {crypto['wait_hours']} soatdan keyin\n\n"
             f"📤 Quyidagi manzilga yuboring:\n"
             f"`{crypto['wallet_address']}`\n\n"
@@ -254,8 +254,8 @@ async def deposit_screenshot(message: types.Message, state: FSMContext):
                     f"🆕 *Yangi depozit #{dep_id}*\n\n"
                     f"👤 [{u.full_name}](tg://user?id={user_id}) | `{user_id}`\n"
                     f"🪙 *{crypto['symbol']}* ({crypto['name']})\n"
-                    f"💰 Miqdor: *{amount} {crypto['symbol']}*\n"
-                    f"📈 Qaytarish: *{payout:.4f} {crypto['symbol']}* (x{crypto['multiplier']})\n"
+                    f"💰 Miqdor: *{amount:.8f} {crypto['symbol']}*\n"
+                    f"📈 Qaytarish: *{payout:.8f} {crypto['symbol']}* (x{crypto['multiplier']})\n"
                     f"⏰ {crypto['wait_hours']} soatdan keyin\n"
                     f"🕐 {datetime.now().strftime('%d.%m.%Y %H:%M')}"
                 ),
@@ -269,7 +269,7 @@ async def deposit_screenshot(message: types.Message, state: FSMContext):
         "✅ *So'rovingiz qabul qilindi!*\n\n"
         f"⏳ Admin skrinshotni ko'rib chiqadi.\n"
         f"Tasdiqlangach *{crypto['wait_hours']} soat*dan keyin "
-        f"*{payout:.4f} {crypto['symbol']}* hisobingizga tushadi! 🚀",
+        f"*{payout:.8f} {crypto['symbol']}* hisobingizga tushadi! 🚀",
         parse_mode="Markdown",
         reply_markup=main_menu()
     )
@@ -299,8 +299,8 @@ async def approve_deposit(callback: types.CallbackQuery):
         await bot.send_message(
             deposit['user_id'],
             f"🎉 *Depozitingiz tasdiqlandi!*\n\n"
-            f"🪙 {deposit['amount']} {deposit['crypto_symbol']}\n"
-            f"📈 {deposit['wait_hours']} soatdan keyin: *{payout:.4f} {deposit['crypto_symbol']}*\n"
+            f"🪙 {deposit['amount']:.8f} {deposit['crypto_symbol']}\n"
+            f"📈 {deposit['wait_hours']} soatdan keyin: *{payout:.8f} {deposit['crypto_symbol']}*\n"
             f"⏰ Tugash vaqti: {finish.strftime('%d.%m.%Y %H:%M')}",
             parse_mode="Markdown"
         )
@@ -360,7 +360,7 @@ async def auto_payout(user_id, payout, dep_id, symbol, wait_hours):
         await bot.send_message(
             user_id,
             f"🎊 *Tolovingiz tayyor!*\n\n"
-            f"💰 Hisobingizga *{payout:.4f} {symbol}* qoshildi!\n"
+            f"💰 Hisobingizga *{payout:.8f} {symbol}* qoshildi!\n"
             f"💸 Yechib olish uchun tugmani bosing.",
             parse_mode="Markdown"
         )
@@ -370,7 +370,7 @@ async def auto_payout(user_id, payout, dep_id, symbol, wait_hours):
         try:
             await bot.send_message(
                 admin_id,
-                f"✅ Avtomatik tolov: user {user_id} ga {payout:.4f} {symbol}"
+                f"✅ Avtomatik tolov: user {user_id} ga {payout:.8f} {symbol}"
             )
         except Exception:
             pass
@@ -388,7 +388,7 @@ async def show_history(message: types.Message):
     for h in history:
         emoji = status_map.get(h['status'], "•")
         payout = h['amount'] * h['multiplier']
-        text += f"{emoji} {h['amount']} {h['crypto_symbol']} → {payout:.4f} | {h['created_at'].strftime('%d.%m %H:%M')} | {h['status']}\n"
+        text += f"{emoji} {h['amount']:.8f} {h['crypto_symbol']} → {payout:.8f} | {h['created_at'].strftime('%d.%m %H:%M')} | {h['status']}\n"
     await message.answer(text, parse_mode="Markdown")
 
 
@@ -405,7 +405,7 @@ async def show_referral(message: types.Message):
         f"👥 *Referal tizimi*\n\n"
         f"🔗 Havolangiz:\n`{link}`\n\n"
         f"👤 Taklif qilganlar: *{count}* kishi\n"
-        f"💰 Referal daromad: *{earnings:.4f}*\n\n"
+        f"💰 Referal daromad: *{earnings:.8f}*\n\n"
         f"💡 Har bir dostingiz depozit qilganda *{bonus}%* bonus!",
         parse_mode="Markdown"
     )
@@ -424,7 +424,7 @@ async def withdraw_start(message: types.Message, state: FSMContext):
         return
     await message.answer(
         f"💸 *Pul yechish*\n\n"
-        f"💰 Balans: *{user['balance_usd']:.4f}*\n\n"
+        f"💰 Balans: *{user['balance_usd']:.8f}*\n\n"
         f"Qaysi cryptoda yechmoqchisiz?",
         parse_mode="Markdown",
         reply_markup=crypto_list_kb(cryptos, prefix="wd_crypto")
@@ -453,7 +453,7 @@ async def withdraw_address(message: types.Message, state: FSMContext):
     crypto = data['crypto']
     await message.answer(
         f"💰 Qancha *{crypto['symbol']}* yechmoqchisiz?\n"
-        f"_(Mavjud balans: {user['balance_usd']:.4f})_",
+        f"_(Mavjud balans: {user['balance_usd']:.8f})_",
         parse_mode="Markdown"
     )
     await state.set_state(WithdrawState.waiting_amount)
@@ -482,7 +482,7 @@ async def withdraw_amount(message: types.Message, state: FSMContext):
                     f"💸 *Yechish sorovi*\n\n"
                     f"👤 [{message.from_user.full_name}](tg://user?id={message.from_user.id})\n"
                     f"🪙 Crypto: *{crypto['symbol']}*\n"
-                    f"💰 Miqdor: *{amount} {crypto['symbol']}*\n"
+                    f"💰 Miqdor: *{amount:.8f} {crypto['symbol']}*\n"
                     f"📍 Manzil: `{address}`",
                     parse_mode="Markdown"
                 )
@@ -528,8 +528,8 @@ async def admin_panel(message: types.Message, state: FSMContext):
     await message.answer(
         f"🔐 *Admin Panel*\n\n"
         f"👤 Foydalanuvchilar: *{stats['users']}*\n"
-        f"💰 Jami depozit: *{stats['total_deposits']:.4f}*\n"
-        f"📤 Jami tolovlar: *{stats['total_payouts']:.4f}*\n"
+        f"💰 Jami depozit: *{stats['total_deposits']:.8f}*\n"
+        f"📤 Jami tolovlar: *{stats['total_payouts']:.8f}*\n"
         f"⏳ Kutayotgan: *{stats['pending']}*\n"
         f"✅ Aktiv: *{stats['approved']}*",
         parse_mode="Markdown",
@@ -825,7 +825,7 @@ async def admin_pending(message: types.Message):
                 caption=(
                     f"💳 *Depozit #{dep['id']}*\n"
                     f"👤 User: `{dep['user_id']}`\n"
-                    f"🪙 {dep['amount']} {dep['crypto_symbol']} → {payout:.4f}\n"
+                    f"🪙 {dep['amount']:.8f} {dep['crypto_symbol']} → {payout:.8f}\n"
                     f"🕐 {dep['created_at'][:16]}"
                 ),
                 parse_mode="Markdown",
@@ -835,7 +835,7 @@ async def admin_pending(message: types.Message):
             await message.answer(
                 f"💳 *Depozit #{dep['id']}*\n"
                 f"👤 User: `{dep['user_id']}`\n"
-                f"🪙 {dep['amount']} {dep['crypto_symbol']} → {payout:.4f}\n"
+                f"🪙 {dep['amount']:.8f} {dep['crypto_symbol']} → {payout:.8f}\n"
                 f"🕐 {dep['created_at'][:16]}",
                 parse_mode="Markdown",
                 reply_markup=kb
@@ -853,7 +853,7 @@ async def admin_users(message: types.Message):
         return
     text = "👤 *Songgi 20 foydalanuvchi:*\n\n"
     for u in users:
-        text += f"• {u['full_name']} | 💰{u['balance_usd']:.4f} | {u['created_at'][:10]}\n"
+        text += f"• {u['full_name']} | 💰{u['balance_usd']:.8f} | {u['created_at'][:10]}\n"
     await message.answer(text, parse_mode="Markdown")
 
 
@@ -871,8 +871,8 @@ async def admin_stats(message: types.Message):
     await message.answer(
         f"📈 *Bot statistikasi*\n\n"
         f"👤 Foydalanuvchilar: {stats['users']}\n"
-        f"💰 Jami depozit: {stats['total_deposits']:.4f}\n"
-        f"📤 Jami tolovlar: {stats['total_payouts']:.4f}\n"
+        f"💰 Jami depozit: {stats['total_deposits']:.8f}\n"
+        f"📤 Jami tolovlar: {stats['total_payouts']:.8f}\n"
         f"⏳ Kutayotganlar: {stats['pending']}\n"
         f"✅ Aktiv depozitlar: {stats['approved']}\n\n"
         f"🪙 *Cryptolar:*\n{crypto_text}",
