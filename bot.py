@@ -61,7 +61,7 @@ def main_menu():
     return ReplyKeyboardMarkup(keyboard=[
         [KeyboardButton(text="💰 Depozit"), KeyboardButton(text="📊 Balans")],
         [KeyboardButton(text="📜 Tarix"), KeyboardButton(text="👥 Referal")],
-        [KeyboardButton(text="ℹ️ Ma'lumot"), KeyboardButton(text="💸 Yechib olish")]
+        [KeyboardButton(text="ℹ️ Malumot"), KeyboardButton(text="💸 Yechib olish")]
     ], resize_keyboard=True)
 
 def admin_menu():
@@ -501,7 +501,7 @@ async def withdraw_amount(message: types.Message, state: FSMContext):
 
 
 # ===================== MALUMOT =====================
-@dp.message(F.text.in_({'ℹ️ Ma\'lumot', "ℹ️ Ma'lumot"}))
+@dp.message(F.text == "ℹ️ Malumot")
 async def info(message: types.Message):
     cryptos = db.get_all_cryptos(only_active=True)
     crypto_text = ""
