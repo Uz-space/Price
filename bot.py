@@ -14,6 +14,8 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from database import Database
 
 # ===================== SOZLAMALAR =====================
+
+
 BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN")
 ADMIN_IDS = [int(x) for x in os.getenv("ADMIN_IDS", "123456789").split(",")]
 
@@ -499,7 +501,7 @@ async def withdraw_amount(message: types.Message, state: FSMContext):
 
 
 # ===================== MALUMOT =====================
-@dp.message(F.text == "ℹ️ Ma'lumot")
+@dp.message(F.text.in_({'ℹ️ Ma\'lumot', "ℹ️ Ma'lumot"}))
 async def info(message: types.Message):
     cryptos = db.get_all_cryptos(only_active=True)
     crypto_text = ""
