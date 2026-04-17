@@ -503,20 +503,25 @@ async def withdraw_amount(message: types.Message, state: FSMContext):
 # ===================== MALUMOT =====================
 @dp.message(F.text == "ℹ️ Malumot")
 async def info(message: types.Message):
-    cryptos = db.get_all_cryptos(only_active=True)
-    crypto_text = ""
-    for c in cryptos:
-        crypto_text += f"• {c['symbol']} ({c['name']}) | x{c['multiplier']} | {c['wait_hours']}s | min: {c['min_deposit']}\n"
-    if not crypto_text:
-        crypto_text = "Hozircha mavjud emas"
-    await message.answer(
-        f"ℹ️ *Bot haqida*\n\n"
-        f"🤖 Crypto Investment Bot\n\n"
-        f"🪙 *Mavjud cryptolar:*\n{crypto_text}\n"
-        f"👥 Referal bonus: {db.get_setting('referral_bonus') or 5}%\n\n"
-        f"📞 Admin: @admin_username",
-        parse_mode="Markdown"
-    )
+    try:
+        cryptos = db.get_all_cryptos(only_active=True)
+        bonus = db.get_setting('referral_bonus') or '5'
+        lines = ["ℹ️ Bot haqida", "", "🤖 Crypto Investment Bot", ""]
+        if cryptos:
+            lines.append("🪙 Mavjud cryptolar:")
+            for c in cryptos:
+                lines.append(f"  {c['symbol']} - {c['name']}")
+                lines.append(f"  Koeff: x{c['multiplier']} | Vaqt: {c['wait_hours']}s | Min: {c['min_deposit']}")
+                lines.append("")
+        else:
+            lines.append("🪙 Hozircha aktiv crypto yoq")
+            lines.append("")
+        lines.append(f"👥 Referal bonus: {bonus}%")
+        lines.append("📞 Admin: @admin_username")
+        await message.answer("\n".join(lines))
+    except Exception as e:
+        logging.error(f"Info xatosi: {e}")
+        await message.answer("Malumot yuklanmadi, qayta urining.")
 
 
 # ==================== ADMIN PANEL ====================
