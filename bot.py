@@ -26,6 +26,13 @@ dp = Dispatcher(storage=MemoryStorage())
 db = Database()
 
 
+
+def fmt(n):
+    try:
+        return f"{float(n):.8f}"
+    except:
+        return str(n)
+
 # ===================== STATES =====================
 class DepositState(StatesGroup):
     choose_crypto = State()
@@ -75,7 +82,7 @@ def admin_menu():
 def crypto_list_kb(cryptos, prefix="dep_crypto"):
     buttons = []
     for c in cryptos:
-        label = f"{'✅' if c['is_active'] else '❌'} {c['symbol']} | x{c['multiplier']} | min:{c['min_deposit']}"
+        label = f"{'✅' if c['is_active'] else '❌'} {c['symbol']} | x{fmt(c['multiplier'])} | min:{fmt(c['min_deposit'])}"
         buttons.append([InlineKeyboardButton(text=label, callback_data=f"{prefix}_{c['id']}")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -185,8 +192,8 @@ async def deposit_choose_crypto(callback: types.CallbackQuery, state: FSMContext
     await state.update_data(crypto_id=crypto_id, crypto=dict(crypto))
     await callback.message.edit_text(
         f"✅ Tanlandi: *{crypto['name']} ({crypto['symbol']})*\n\n"
-        f"📌 Minimal miqdor: *{crypto['min_deposit']} {crypto['symbol']}*\n"
-        f"📈 Koeffitsient: *x{crypto['multiplier']}*\n"
+        f"📌 Minimal miqdor: *{fmt(crypto['min_deposit'])} {crypto['symbol']}*\n"
+        f"📈 Koeffitsient: *x{fmt(crypto['multiplier'])}*\n"
         f"⏰ Kutish vaqti: *{crypto['wait_hours']} soat*\n\n"
         f"Qancha *{crypto['symbol']}* kiritmoqchisiz?",
         parse_mode="Markdown"
@@ -202,7 +209,7 @@ async def deposit_amount(message: types.Message, state: FSMContext):
         crypto = data['crypto']
         if amount < crypto['min_deposit']:
             await message.answer(
-                f"❌ Minimal miqdor *{crypto['min_deposit']} {crypto['symbol']}*! Qayta kiriting:",
+                f"❌ Minimal miqdor *{fmt(crypto['min_deposit'])} {crypto['symbol']}*! Qayta kiriting:",
                 parse_mode="Markdown"
             )
             return
@@ -257,7 +264,7 @@ async def deposit_screenshot(message: types.Message, state: FSMContext):
                     f"👤 [{u.full_name}](tg://user?id={user_id}) | `{user_id}`\n"
                     f"🪙 *{crypto['symbol']}* ({crypto['name']})\n"
                     f"💰 Miqdor: *{amount:.8f} {crypto['symbol']}*\n"
-                    f"📈 Qaytarish: *{payout:.8f} {crypto['symbol']}* (x{crypto['multiplier']})\n"
+                    f"📈 Qaytarish: *{payout:.8f} {crypto['symbol']}* (x{fmt(crypto['multiplier'])})\n"
                     f"⏰ {crypto['wait_hours']} soatdan keyin\n"
                     f"🕐 {datetime.now().strftime('%d.%m.%Y %H:%M')}"
                 ),
@@ -511,7 +518,7 @@ async def info(message: types.Message):
             lines.append("🪙 Mavjud cryptolar:")
             for c in cryptos:
                 lines.append(f"  {c['symbol']} - {c['name']}")
-                lines.append(f"  Koeff: x{c['multiplier']} | Vaqt: {c['wait_hours']}s | Min: {c['min_deposit']}")
+                lines.append(f"  Koeff: x{fmt(c['multiplier'])} | Vaqt: {c['wait_hours']}s | Min: {fmt(c['min_deposit'])}")
                 lines.append("")
         else:
             lines.append("🪙 Hozircha aktiv crypto yoq")
@@ -585,8 +592,8 @@ async def admin_crypto_detail(callback: types.CallbackQuery):
     await callback.message.edit_text(
         f"🪙 *{c['name']} ({c['symbol']})*\n\n"
         f"📍 Wallet: `{c['wallet_address']}`\n"
-        f"📌 Min depozit: *{c['min_deposit']} {c['symbol']}*\n"
-        f"📈 Koeffitsient: *x{c['multiplier']}*\n"
+        f"📌 Min depozit: *{fmt(c['min_deposit'])} {c['symbol']}*\n"
+        f"📈 Koeffitsient: *x{fmt(c['multiplier'])}*\n"
         f"⏰ Kutish: *{c['wait_hours']} soat*\n"
         f"🔘 Holat: {status}",
         parse_mode="Markdown",
@@ -606,8 +613,8 @@ async def toggle_crypto_handler(callback: types.CallbackQuery):
     await callback.message.edit_text(
         f"🪙 *{c['name']} ({c['symbol']})*\n\n"
         f"📍 Wallet: `{c['wallet_address']}`\n"
-        f"📌 Min depozit: *{c['min_deposit']} {c['symbol']}*\n"
-        f"📈 Koeffitsient: *x{c['multiplier']}*\n"
+        f"📌 Min depozit: *{fmt(c['min_deposit'])} {c['symbol']}*\n"
+        f"📈 Koeffitsient: *x{fmt(c['multiplier'])}*\n"
         f"⏰ Kutish: *{c['wait_hours']} soat*\n"
         f"🔘 Holat: {status}",
         parse_mode="Markdown",
@@ -724,8 +731,8 @@ async def add_crypto_hours(message: types.Message, state: FSMContext):
         if success:
             await message.answer(
                 f"✅ *{data['symbol']} ({data['name']})* qoshildi!\n\n"
-                f"📌 Min: {data['min_deposit']} {data['symbol']}\n"
-                f"📈 Koeffitsient: x{data['multiplier']}\n"
+                f"📌 Min: {fmt(data['min_deposit'])} {data['symbol']}\n"
+                f"📈 Koeffitsient: x{fmt(data['multiplier'])}\n"
                 f"⏰ Kutish: {hours} soat",
                 parse_mode="Markdown",
                 reply_markup=admin_menu()
@@ -798,8 +805,8 @@ async def edit_crypto_value(message: types.Message, state: FSMContext):
         c = db.get_crypto(crypto_id)
         await message.answer(
             f"✅ *{c['symbol']}* yangilandi!\n\n"
-            f"📌 Min: {c['min_deposit']} {c['symbol']}\n"
-            f"📈 Koeffitsient: x{c['multiplier']}\n"
+            f"📌 Min: {fmt(c['min_deposit'])} {c['symbol']}\n"
+            f"📈 Koeffitsient: x{fmt(c['multiplier'])}\n"
             f"⏰ Kutish: {c['wait_hours']} soat\n"
             f"📍 Wallet: `{c['wallet_address']}`",
             parse_mode="Markdown",
@@ -872,7 +879,7 @@ async def admin_stats(message: types.Message):
     stats = db.get_stats()
     cryptos = db.get_all_cryptos()
     crypto_text = "\n".join(
-        f"  {'🟢' if c['is_active'] else '🔴'} {c['symbol']}: x{c['multiplier']}, {c['wait_hours']}s"
+        f"  {'🟢' if c['is_active'] else '🔴'} {c['symbol']}: x{fmt(c['multiplier'])}, {c['wait_hours']}s"
         for c in cryptos
     ) or "  Yoq"
     await message.answer(
