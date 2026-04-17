@@ -80,10 +80,19 @@ def admin_menu():
     ], resize_keyboard=True)
 
 def crypto_list_kb(cryptos, prefix="dep_crypto"):
+    """Depozit uchun - koeff va min ko'rsatadi"""
     buttons = []
     for c in cryptos:
-        label = f"{'✅' if c['is_active'] else '❌'} {c['symbol']} | x{fmt(c['multiplier'])} | min:{fmt(c['min_deposit'])}"
+        label = f"{'✅' if c['is_active'] else '❌'} {c['symbol']} | x{fmt(c['multiplier'])} | min: {fmt(c['min_deposit'])}"
         buttons.append([InlineKeyboardButton(text=label, callback_data=f"{prefix}_{c['id']}")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def withdraw_crypto_kb(cryptos):
+    """Yechish uchun - faqat crypto nomi"""
+    buttons = []
+    for c in cryptos:
+        label = f"💎 {c['symbol']} - {c['name']}"
+        buttons.append([InlineKeyboardButton(text=label, callback_data=f"wd_crypto_{c['id']}")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def admin_crypto_kb(cryptos):
@@ -436,7 +445,7 @@ async def withdraw_start(message: types.Message, state: FSMContext):
         f"💰 Balans: *{user['balance_usd']:.8f}*\n\n"
         f"Qaysi cryptoda yechmoqchisiz?",
         parse_mode="Markdown",
-        reply_markup=crypto_list_kb(cryptos, prefix="wd_crypto")
+        reply_markup=withdraw_crypto_kb(cryptos)
     )
     await state.set_state(WithdrawState.choose_crypto)
 
