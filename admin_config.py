@@ -290,7 +290,7 @@ async def admin_enter(message: Message, state: FSMContext):
 
 def api_list_kb():
     rows = [[InlineKeyboardButton(
-        text=f"💎 {cur['name']}",
+        text=f"🔷 {cur['name']}",
         callback_data=f"AF_{cur['id']}"   # AF_ prefix — boshqa hech narsa bilan conflict yo'q
     )] for cur in API_RATE_CURS]
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -351,7 +351,7 @@ async def af_detail(cb: CallbackQuery, state: FSMContext):
     live = db.get("live_rates", {}).get(cid, {})
     if live:
         text = (
-            f"💎 {cur['name']} sozlamalari\n\n"
+            f"🔷 {cur['name']} sozlamalari\n\n"
             f"🌐 API narxi: ${live.get('usd_price','—')}\n"
             f"💵 USD/UZS: {live.get('usd_uzs','—'):,.0f}\n"
             f"📊 Xom kurs: {live.get('raw_uzs','—'):,} SO'M\n"
@@ -361,14 +361,14 @@ async def af_detail(cb: CallbackQuery, state: FSMContext):
         )
     elif cur and cur.get("type") == "card":
         text = (
-            f"💎 {cur['name']} sozlamalari\n\n"
+            f"🔷 {cur['name']} sozlamalari\n\n"
             f"💳 Karta valyutasi uchun live API kurs bo'lmaydi.\n"
             f"Lekin foiz, komissiya, minimal va maksimal limitlar ishlaydi.\n\n"
             f"Nimani o'zgartirmoqchisiz?"
         )
     else:
         text = (
-            f"💎 {cur['name']} sozlamalari\n\n"
+            f"🔷 {cur['name']} sozlamalari\n\n"
             f"⚠️ Live kurs yo'q. '🔄 Kursni yangilash' ni bosing.\n\n"
             f"Nimani o'zgartirmoqchisiz?"
         )
@@ -389,7 +389,7 @@ async def af_edit(cb: CallbackQuery, state: FSMContext):
     await state.set_state(ACS.api_edit_val)
     await state.update_data(edit_cid=cid, edit_field=field)
     await cb.message.edit_text(
-        f"💎 {cur['name'] if cur else cid} — {label}\n\n"
+        f"🔷 {cur['name'] if cur else cid} — {label}\n\n"
         f"Hozirgi qiymat: {cur_v}\n\n"
         f"{hint}\n\n"
         f"Yangi qiymat kiriting:"
