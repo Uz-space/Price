@@ -41,7 +41,7 @@ def get_rate_info(from_id: str, to_id: str) -> dict | None:
 def get_payment_card(cur_id: str) -> str:
     db = load_db()
     return db.get("payment_cards", {
-        "uzcard": "8600 1666 0393 7029",
+        "uzcard": "9860 0000 0000 0000",
         "humo":   "9860 0000 0000 0000"
     }).get(cur_id, "")
 
@@ -140,7 +140,7 @@ def step1_kb() -> InlineKeyboardMarkup:
     rows = []
     for cur in CURRENCIES:
         rows.append([
-            InlineKeyboardButton(text=f"💎 {cur['name']}", callback_data=f"EX1_{cur['id']}"),
+            InlineKeyboardButton(text=f"🔷 {cur['name']}", callback_data=f"EX1_{cur['id']}"),
             InlineKeyboardButton(text=f"🔶 {cur['name']}", callback_data=f"EX1_{cur['id']}"),
         ])
     rows.append([InlineKeyboardButton(text="🏠 Bosh menyu", callback_data="EX_CANCEL")])
@@ -152,7 +152,7 @@ def step2_kb(from_id: str) -> InlineKeyboardMarkup:
     for cur in CURRENCIES:
         selected = cur["id"] == from_id
         left  = InlineKeyboardButton(
-            text=f"💎 {cur['name']} ✅" if selected else f"💎 {cur['name']}",
+            text=f"🔷 {cur['name']} ✅" if selected else f"💎 {cur['name']}",
             callback_data="EX_NOOP"
         )
         right = InlineKeyboardButton(
@@ -192,7 +192,7 @@ async def ex_start(message: Message, state: FSMContext):
     await state.clear()
     await state.set_state(ExchangeState.choosing_from)
     await message.answer(
-        "🔄 Almashuv: qaysi tomondan boshlaysiz (💎 berinig / 🔶 oling):",
+        "🔄 Almashuv: qaysi tomondan boshlaysiz (🔷 berinig / 🔶 oling):",
         reply_markup=step1_kb()
     )
 
